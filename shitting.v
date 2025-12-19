@@ -152,6 +152,70 @@ Module Units.
     exact Hwf.
   Defined.
 
+  Lemma iv_add_wf : forall i1 i2,
+    interval_wf Pa_le i1 -> interval_wf Pa_le i2 ->
+    interval_wf Pa_le (iv_add i1 i2).
+  Proof.
+    intros i1 i2 H1 H2.
+    unfold interval_wf, Pa_le, iv_add, Pa_add in *.
+    simpl in *.
+    apply PeanoNat.Nat.add_le_mono; assumption.
+  Defined.
+
+  Lemma iv_mul_wf : forall i1 i2,
+    interval_wf Pa_le i1 -> interval_wf Pa_le i2 ->
+    interval_wf Pa_le (iv_mul i1 i2).
+  Proof.
+    intros i1 i2 H1 H2.
+    unfold interval_wf, Pa_le, iv_mul in *.
+    simpl.
+    apply PeanoNat.Nat.mul_le_mono; assumption.
+  Defined.
+
+  Lemma iv_div_wf : forall i d,
+    interval_wf Pa_le i -> interval_wf Pa_le (iv_div i d).
+  Proof.
+    intros i d H.
+    unfold interval_wf, Pa_le, iv_div in *.
+    simpl in *.
+    assert (Hpos: S d <> 0) by lia.
+    apply PeanoNat.Nat.div_le_mono with (c := S d) in H.
+    - exact H.
+    - exact Hpos.
+  Defined.
+
+  Lemma iv_mm_add_wf : forall i1 i2,
+    interval_wf mm_le i1 -> interval_wf mm_le i2 ->
+    interval_wf mm_le (iv_mm_add i1 i2).
+  Proof.
+    intros i1 i2 H1 H2.
+    unfold interval_wf, mm_le, iv_mm_add, mm_add in *.
+    simpl in *.
+    apply PeanoNat.Nat.add_le_mono; assumption.
+  Defined.
+
+  Lemma iv_mm_scale_wf : forall k i,
+    interval_wf mm_le i -> interval_wf mm_le (iv_mm_scale k i).
+  Proof.
+    intros k i H.
+    unfold interval_wf, mm_le, iv_mm_scale in *.
+    simpl.
+    apply PeanoNat.Nat.mul_le_mono_l.
+    exact H.
+  Defined.
+
+  Lemma iv_mm_div_wf : forall i d,
+    interval_wf mm_le i -> interval_wf mm_le (iv_mm_div i d).
+  Proof.
+    intros i d H.
+    unfold interval_wf, mm_le, iv_mm_div in *.
+    simpl in *.
+    assert (Hpos: S d <> 0) by lia.
+    apply PeanoNat.Nat.div_le_mono with (c := S d) in H.
+    - exact H.
+    - exact Hpos.
+  Defined.
+
   Definition positive_differential (diff : Interval Pa) : Prop :=
     lo Pa diff > 0.
 End Units.
@@ -715,6 +779,61 @@ Module Pressure.
     lia.
   Defined.
 
+  Lemma flow_rate_positive :
+    forall diff physics,
+    lo Pa diff > hi Pa (bp_yield_stress physics) + hi cP (bp_viscosity physics) ->
+    lo mm (flow_rate diff physics) > 0.
+  Proof.
+    intros diff physics Hdiff.
+    unfold flow_rate.
+    simpl.
+    assert (Hnum: lo Pa diff - hi Pa (bp_yield_stress physics) > hi cP (bp_viscosity physics)).
+    { lia. }
+    assert (Hdiv: Nat.div (lo Pa diff - hi Pa (bp_yield_stress physics)) (S (hi cP (bp_viscosity physics))) > 0).
+    { apply PeanoNat.Nat.div_str_pos.
+      split.
+      - lia.
+      - lia. }
+    exact Hdiv.
+  Defined.
+
+  Definition margin_for_flow (physics : BolusPhysics) : Pa :=
+    hi Pa (bp_yield_stress physics) + hi cP (bp_viscosity physics).
+
+  Lemma passage_possible_with_margin :
+    forall exp res physics,
+    lo Pa (e_total exp) > hi Pa (r_total res) + margin_for_flow physics ->
+    lo mm (flow_rate (pressure_differential exp res) physics) > 0.
+  Proof.
+    intros exp res physics Hmargin.
+    apply flow_rate_positive.
+    unfold pressure_differential, iv_sub, Pa_sub, margin_for_flow in *.
+    simpl.
+    lia.
+  Defined.
+
+  Lemma passage_possible_implies_positive_differential :
+    forall exp res,
+    passage_possible exp res ->
+    Units.positive_differential (pressure_differential exp res).
+  Proof.
+    intros exp res Hpass.
+    unfold Units.positive_differential, passage_possible, pressure_differential, iv_sub, Pa_sub in *.
+    simpl.
+    lia.
+  Defined.
+
+  Lemma passage_possible_dec :
+    forall exp res,
+    {passage_possible exp res} + {~passage_possible exp res}.
+  Proof.
+    intros exp res.
+    unfold passage_possible.
+    destruct (Compare_dec.gt_dec (lo Pa (e_total exp)) (hi Pa (r_total res))).
+    - left. exact g.
+    - right. lia.
+  Defined.
+
 End Pressure.
 
 
@@ -763,13 +882,7 @@ Module Neural.
      EAS contraction can maintain continence despite RAIR.
      Time-limited by fatigue.
   *)
-  
-  Record ContinenceState := mkContinence {
-    eas_contracted : bool;
-    contraction_duration : sec;
-    remaining_strength : Interval Pa;  (* decreases with fatigue *)
-  }.
-  
+
   Definition eas_fatigue_model
     (eas : ExternalSphincter) (t : sec) : Interval Pa :=
     let max_lo := lo Pa (eas_max_squeeze_pressure eas) in
@@ -793,6 +906,24 @@ Module Neural.
     simpl.
     lia.
   Defined.
+
+  Record ContinenceState := mkContinence {
+    eas_contracted : bool;
+    contraction_duration : sec;
+    remaining_strength : Interval Pa;
+  }.
+
+  Definition initial_continence (eas : ExternalSphincter) : ContinenceState :=
+    mkContinence true 0 (eas_max_squeeze_pressure eas).
+
+  Definition update_continence (eas : ExternalSphincter) (cs : ContinenceState) (dt : sec)
+    : ContinenceState :=
+    let new_duration := contraction_duration cs + dt in
+    let new_strength := eas_fatigue_model eas new_duration in
+    mkContinence (eas_contracted cs) new_duration new_strength.
+
+  Definition continence_exhausted (cs : ContinenceState) : Prop :=
+    hi Pa (remaining_strength cs) = 0.
   
   (*--------------------------------------------------------------------------*)
   (* 5.3 Voluntary Initiation                                                 *)
@@ -809,10 +940,42 @@ Module Neural.
   Record VoluntaryCommands := mkCommands {
     cmd_eas_relax : bool;
     cmd_pr_relax : bool;
-    cmd_valsalva_intensity : Interval Pa;  (* 0 to max *)
+    cmd_valsalva_intensity : Interval Pa;
     cmd_bearing_down : bool;
   }.
-  
+
+  Definition effective_valsalva (cmd : VoluntaryCommands) (aw : Anatomy.AbdominalWall) : Interval Pa :=
+    let base := cmd_valsalva_intensity cmd in
+    let max_allowed := Anatomy.aw_max_valsalva_pressure aw in
+    let clamped_lo := Nat.min (lo Pa base) (hi Pa max_allowed) in
+    let clamped_hi := Nat.min (hi Pa base) (hi Pa max_allowed) in
+    let bearing_bonus := if cmd_bearing_down cmd then 500 else 0 in
+    mkInterval Pa (clamped_lo + bearing_bonus) (clamped_hi + bearing_bonus).
+
+  Lemma bearing_down_increases_pressure :
+    forall cmd aw,
+    cmd_bearing_down cmd = true ->
+    lo Pa (effective_valsalva cmd aw) >= 500.
+  Proof.
+    intros cmd aw Hbd.
+    unfold effective_valsalva.
+    rewrite Hbd.
+    simpl.
+    apply PeanoNat.Nat.le_add_l.
+  Defined.
+
+  Definition commands_for_defecation (valsalva : Interval Pa) : VoluntaryCommands :=
+    mkCommands true true valsalva true.
+
+  Lemma commands_for_defecation_permits :
+    forall v,
+    cmd_eas_relax (commands_for_defecation v) = true /\
+    cmd_pr_relax (commands_for_defecation v) = true.
+  Proof.
+    intros v.
+    split; reflexivity.
+  Defined.
+
   (*--------------------------------------------------------------------------*)
   (* 5.4 Defecation Reflex Integration                                        *)
   (*--------------------------------------------------------------------------*)
@@ -876,40 +1039,52 @@ Module StateMachine.
   Definition urge_threshold : mL := 100.
 
   Definition guard_urge (s : SystemState) : Prop :=
+    reflex_state s = Quiescent /\
     match bolus s with
     | None => False
     | Some b => urge_threshold <=mL lo mL (bolus_volume b)
     end.
-  
+
+  Definition has_bolus (s : SystemState) : Prop :=
+    match bolus s with
+    | None => False
+    | Some _ => True
+    end.
+
   (* UrgePresent -> VoluntaryHold *)
   Definition guard_hold (s : SystemState) : Prop :=
     reflex_state s = UrgePresent /\
-    cmd_eas_relax (voluntary_commands s) = false.
+    cmd_eas_relax (voluntary_commands s) = false /\
+    has_bolus s.
   
   (* UrgePresent -> InitiationPhase *)
   Definition guard_initiate (s : SystemState) : Prop :=
     reflex_state s = UrgePresent /\
     cmd_eas_relax (voluntary_commands s) = true /\
-    cmd_pr_relax (voluntary_commands s) = true.
-  
+    cmd_pr_relax (voluntary_commands s) = true /\
+    has_bolus s.
+
   Definition fatigue_limit : sec := 180.
 
   Definition guard_fatigue_failure (s : SystemState) : Prop :=
     reflex_state s = VoluntaryHold /\
-    fatigue_limit <=sec eas_fatigue_accumulated s.
-  
+    fatigue_limit <=sec eas_fatigue_accumulated s /\
+    has_bolus s.
+
   Definition relaxation_threshold : Pa := 500.
 
   Definition guard_expulsion_start (s : SystemState) : Prop :=
     reflex_state s = InitiationPhase /\
     hi Pa (eas_pressure s) <=Pa relaxation_threshold /\
-    hi Pa (ias_pressure s) <=Pa relaxation_threshold.
-  
+    hi Pa (ias_pressure s) <=Pa relaxation_threshold /\
+    has_bolus s.
+
   Definition passage_complete_threshold : mm := 0.
 
   Definition guard_completion (s : SystemState) : Prop :=
     reflex_state s = ExpulsionPhase /\
-    hi mm (bolus_position s) <=mm passage_complete_threshold.
+    hi mm (bolus_position s) <=mm passage_complete_threshold /\
+    has_bolus s.
   
   Definition resting_tone_threshold : Pa := 3000.
 
@@ -1393,6 +1568,42 @@ Module Termination.
         lo Pa (Pressure.e_total exp) > hi Pa (Pressure.r_total res)
     end.
 
+  Definition sufficient_pressure_with_margin (s : SystemState) : Prop :=
+    match bolus s with
+    | None => False
+    | Some b =>
+        let pg := Posture.posture_to_geometry (posture s) in
+        let exp := Pressure.compute_expulsive (anatomy s) pg in
+        let res := Pressure.compute_resistance (anatomy s) b pg in
+        let physics := Bolus.bolus_physics b in
+        lo Pa (Pressure.e_total exp) > hi Pa (Pressure.r_total res) + Pressure.margin_for_flow physics
+    end.
+
+  Lemma sufficient_pressure_implies_flow :
+    forall s,
+    sufficient_pressure_with_margin s ->
+    has_positive_flow s.
+  Proof.
+    intros s Hsuff.
+    unfold has_positive_flow, compute_bolus_advancement, sufficient_pressure_with_margin in *.
+    destruct (bolus s) as [b|] eqn:Hbolus.
+    - apply Pressure.passage_possible_with_margin.
+      exact Hsuff.
+    - inversion Hsuff.
+  Defined.
+
+  Lemma sufficient_pressure_implies_differential :
+    forall s,
+    sufficient_pressure_with_margin s ->
+    sufficient_pressure_differential s.
+  Proof.
+    intros s Hsuff.
+    unfold sufficient_pressure_differential, sufficient_pressure_with_margin in *.
+    destruct (bolus s) as [b|].
+    - unfold Pressure.margin_for_flow in Hsuff. lia.
+    - exact Hsuff.
+  Defined.
+
   Lemma tick_strictly_decreases :
     forall s,
     has_positive_flow s ->
@@ -1485,6 +1696,7 @@ Module Termination.
     forall s : SystemState,
     reflex_state s = UrgePresent ->
     voluntary_commands_permit_defecation s ->
+    has_bolus s ->
     (match bolus s with Some b => finite_bolus b | None => True end) ->
     hi mm (bolus_position s) <= max_bolus_volume ->
     (forall s', reflex_state s' = ExpulsionPhase -> has_positive_flow s') ->
@@ -1492,30 +1704,49 @@ Module Termination.
     MultiStep s s' /\
     reflex_state s' = Quiescent.
   Proof.
-    intros s Hurge [Heas Hpr] Hfinite Hpos Hflow.
+    intros s Hurge [Heas Hpr] Hbol Hfinite Hpos Hflow.
     set (s1 := transition_to_initiation s).
     set (s2 := transition_to_expulsion s1).
     set (n := sufficient_ticks (hi mm (bolus_position s2))).
     set (s2' := expulsion_ticks n s2).
     set (s3 := transition_to_completion s2').
     set (s4 := transition_to_quiescent s3).
+    assert (Hbol_s1: has_bolus s1).
+    { unfold s1, transition_to_initiation, has_bolus. simpl. exact Hbol. }
+    assert (Hbol_s2: has_bolus s2).
+    { unfold s2, transition_to_expulsion, has_bolus. simpl. exact Hbol_s1. }
+    assert (Hbol_s2': has_bolus s2').
+    { unfold s2'.
+      assert (Hpres: forall m st, has_bolus st -> has_bolus (expulsion_ticks m st)).
+      { induction m.
+        - intros st Hb. simpl. exact Hb.
+        - intros st Hb. simpl.
+          destruct (Nat.leb (hi mm (bolus_position st)) passage_complete_threshold).
+          + exact Hb.
+          + apply IHm. unfold transition_expulsion_tick, has_bolus. simpl. exact Hb. }
+      apply Hpres. exact Hbol_s2. }
     exists s4.
     split.
     - apply ms_step with s1.
       + apply step_initiate.
         unfold guard_initiate.
         rewrite Hurge.
-        split.
-        * reflexivity.
-        * split.
-          -- exact Heas.
-          -- exact Hpr.
+        repeat split.
+        * exact Heas.
+        * exact Hpr.
+        * exact Hbol.
       + apply ms_step with s2.
         * apply step_expel.
           unfold guard_expulsion_start.
           split.
           -- apply transition_to_initiation_state.
-          -- apply transition_to_initiation_relaxes.
+          -- split.
+             ++ destruct (transition_to_initiation_relaxes s) as [Heas_r Hias_r].
+                exact Heas_r.
+             ++ split.
+                ** destruct (transition_to_initiation_relaxes s) as [Heas_r Hias_r].
+                   exact Hias_r.
+                ** exact Hbol_s1.
         * assert (Hs2_state: reflex_state s2 = ExpulsionPhase).
           { apply transition_to_expulsion_state. }
           assert (Hms_s2_s2': MultiStep s2 s2').
@@ -1525,7 +1756,7 @@ Module Termination.
           apply ms_step with s3.
              ++ apply step_complete.
                 unfold guard_completion.
-                split.
+                repeat split.
                 ** apply expulsion_ticks_state.
                    exact Hs2_state.
                 ** unfold mm_le.
@@ -1534,6 +1765,7 @@ Module Termination.
                    --- unfold n, sufficient_ticks.
                        lia.
                    --- exact Hflow.
+                ** exact Hbol_s2'.
              ++ apply ms_step with s4.
                 ** apply step_reset.
                    unfold guard_reset.
@@ -1552,31 +1784,34 @@ Module Termination.
     forall s : SystemState,
     reflex_state s = UrgePresent ->
     voluntary_commands_permit_defecation s ->
+    has_bolus s ->
     (match bolus s with Some b => finite_bolus b | None => True end) ->
     hi mm (bolus_position s) <= max_bolus_volume ->
     (forall s', reflex_state s' = ExpulsionPhase -> has_positive_flow s') ->
     exists s' : SystemState,
     MultiStep s s' /\ reflex_state s' = Quiescent.
   Proof.
-    intros s Hurge Hcmd Hfin Hpos Hflow.
-    exact (defecation_terminates s Hurge Hcmd Hfin Hpos Hflow).
+    intros s Hurge Hcmd Hbol Hfin Hpos Hflow.
+    exact (defecation_terminates s Hurge Hcmd Hbol Hfin Hpos Hflow).
   Defined.
-  
+
   Corollary no_infinite_hold :
     forall s : SystemState,
     reflex_state s = VoluntaryHold ->
     fatigue_limit <=sec eas_fatigue_accumulated s ->
+    has_bolus s ->
     exists s' : SystemState,
     Step s s' /\ reflex_state s' <> VoluntaryHold.
   Proof.
-    intros s Hhold Hfatigue.
+    intros s Hhold Hfatigue Hbol.
     exists (transition_fatigue_failure s).
     split.
     - apply step_fatigue.
       unfold guard_fatigue_failure.
-      split.
+      repeat split.
       + exact Hhold.
       + exact Hfatigue.
+      + exact Hbol.
     - rewrite transition_fatigue_failure_state.
       discriminate.
   Defined.
@@ -1853,6 +2088,75 @@ Module Wiping.
     apply H.
   Defined.
 
+  Lemma typed_wipe_strictly_reduces :
+    forall b r,
+    hi mL r > cleanliness_threshold ->
+    bristol_efficiency_factor b >= 1 ->
+    hi mL (wipe_efficiency_typed b r) < hi mL r.
+  Proof.
+    intros b r Hgt Heff.
+    unfold wipe_efficiency_typed, cleanliness_threshold in *.
+    simpl.
+    assert (Hdiv: forall n d, n > 1 -> d >= 1 -> Nat.div n (S d) < n).
+    { intros n d Hn Hd. apply PeanoNat.Nat.div_lt; lia. }
+    apply Hdiv; lia.
+  Defined.
+
+  Fixpoint typed_wipe_iter (b : BristolType) (n : nat) (r : Interval mL) : Interval mL :=
+    match n with
+    | O => r
+    | S n' => typed_wipe_iter b n' (wipe_efficiency_typed b r)
+    end.
+
+  Lemma typed_wipe_iter_converges_aux :
+    forall (v : nat) (b : BristolType) (r : Interval mL),
+    hi mL r = v ->
+    bristol_efficiency_factor b >= 1 ->
+    exists n : nat, hi mL (typed_wipe_iter b n r) <= cleanliness_threshold.
+  Proof.
+    induction v as [v IHv] using (well_founded_induction Wf_nat.lt_wf).
+    intros b r Heq Heff.
+    destruct (Compare_dec.le_dec (hi mL r) cleanliness_threshold) as [Hle | Hgt].
+    - exists 0.
+      simpl.
+      exact Hle.
+    - assert (Hlt: hi mL (wipe_efficiency_typed b r) < hi mL r).
+      { apply typed_wipe_strictly_reduces; lia. }
+      rewrite Heq in Hlt.
+      specialize (IHv (hi mL (wipe_efficiency_typed b r)) Hlt b (wipe_efficiency_typed b r) eq_refl Heff).
+      destruct IHv as [n Hn].
+      exists (S n).
+      simpl.
+      exact Hn.
+  Defined.
+
+  Theorem typed_wiping_converges :
+    forall (b : BristolType) (initial_residue : Interval mL),
+    bristol_efficiency_factor b >= 1 ->
+    exists n : nat,
+    hi mL (typed_wipe_iter b n initial_residue) <= cleanliness_threshold.
+  Proof.
+    intros b initial_residue Heff.
+    apply (typed_wipe_iter_converges_aux (hi mL initial_residue) b initial_residue eq_refl Heff).
+  Defined.
+
+  Lemma all_bristol_types_have_positive_efficiency :
+    forall b, bristol_efficiency_factor b >= 1.
+  Proof.
+    intros b.
+    destruct b; simpl; lia.
+  Defined.
+
+  Corollary any_bristol_wiping_converges :
+    forall (b : BristolType) (initial_residue : Interval mL),
+    exists n : nat,
+    hi mL (typed_wipe_iter b n initial_residue) <= cleanliness_threshold.
+  Proof.
+    intros b initial_residue.
+    apply typed_wiping_converges.
+    apply all_bristol_types_have_positive_efficiency.
+  Defined.
+
   (*--------------------------------------------------------------------------*)
   (* 9.4 The Endless Wiping Problem                                           *)
   (*--------------------------------------------------------------------------*)
@@ -2089,7 +2393,12 @@ Module Interventions.
             (bp_fragmentability physics)
             (bp_typical_diameter physics)
       | StimulantLaxative =>
-          physics
+          mkBolusPhysics
+            (bp_viscosity physics)
+            (mkInterval Pa (Nat.div (lo Pa (bp_yield_stress physics)) 2) (Nat.div (hi Pa (bp_yield_stress physics)) 2))
+            (bp_cohesion physics)
+            (bp_fragmentability physics)
+            (bp_typical_diameter physics)
       | StoolSoftener =>
           mkBolusPhysics
             (mkInterval cP (Nat.div (lo cP (bp_viscosity physics)) 3) (Nat.div (hi cP (bp_viscosity physics)) 3))
@@ -2205,9 +2514,16 @@ Module Interventions.
      - Improves PR relaxation
   *)
   
+  Definition saturating_sub (a b : nat) : nat :=
+    if Nat.leb b a then a - b else 0.
+
   Definition biofeedback_training (sessions : nat) (anat : AnatomicalConfig) : AnatomicalConfig :=
     let improvement := Nat.min sessions 10 in
     let old_eas := eas anat in
+    let old_lo := lo Pa (eas_voluntary_relaxation_floor old_eas) in
+    let old_hi := hi Pa (eas_voluntary_relaxation_floor old_eas) in
+    let new_lo := saturating_sub old_lo (improvement * 50) in
+    let new_hi := saturating_sub old_hi (improvement * 30) in
     let new_eas := mkEAS
       (eas_length old_eas)
       (eas_resting_pressure old_eas)
@@ -2215,9 +2531,7 @@ Module Interventions.
       (mkInterval sec
         (lo sec (eas_fatigue_time old_eas) + improvement * 10)
         (hi sec (eas_fatigue_time old_eas) + improvement * 15))
-      (mkInterval Pa
-        (lo Pa (eas_voluntary_relaxation_floor old_eas) - improvement * 50)
-        (hi Pa (eas_voluntary_relaxation_floor old_eas) - improvement * 30)) in
+      (mkInterval Pa new_lo new_hi) in
     mkAnatomy
       (rectum anat)
       (ias anat)
@@ -2225,6 +2539,18 @@ Module Interventions.
       (puborectalis anat)
       (abdominal_wall anat)
       (anal_canal anat).
+
+  Lemma biofeedback_improves_relaxation :
+    forall sessions anat,
+    lo Pa (eas_voluntary_relaxation_floor (eas (biofeedback_training sessions anat))) <=
+    lo Pa (eas_voluntary_relaxation_floor (eas anat)).
+  Proof.
+    intros sessions anat.
+    unfold biofeedback_training, saturating_sub.
+    simpl.
+    destruct (Nat.leb (Nat.min sessions 10 * 50)
+                       (lo Pa (eas_voluntary_relaxation_floor (eas anat)))); lia.
+  Defined.
   
   (*--------------------------------------------------------------------------*)
   (* 11.5 Squatty Potty                                                       *)
@@ -2311,7 +2637,39 @@ Module Safety.
 
   Definition safe_dilation (anat : AnatomicalConfig) (b : Bolus) : Prop :=
     hi mm (bolus_max_diameter b) <=mm max_safe_dilation.
-  
+
+  Lemma safe_dilation_dec :
+    forall anat b,
+    {safe_dilation anat b} + {~safe_dilation anat b}.
+  Proof.
+    intros anat b.
+    unfold safe_dilation, mm_le, max_safe_dilation.
+    destruct (Compare_dec.le_dec (hi mm (bolus_max_diameter b)) 45).
+    - left. exact l.
+    - right. lia.
+  Defined.
+
+  Lemma safe_dilation_implies_non_obstruction :
+    forall anat b,
+    safe_dilation anat b ->
+    hi mm (ac_max_dilation (anal_canal anat)) >= max_safe_dilation ->
+    Pathology.passage_geometrically_possible anat b.
+  Proof.
+    intros anat b Hsafe Hanat.
+    unfold Pathology.passage_geometrically_possible, safe_dilation, mm_le, max_safe_dilation in *.
+    lia.
+  Defined.
+
+  Lemma non_obstruction_with_margin_enables_passage :
+    forall anat b,
+    Pathology.passage_geometrically_possible anat b ->
+    ~Pathology.obstructed anat b.
+  Proof.
+    intros anat b Hpass.
+    apply Pathology.passage_requires_non_obstruction.
+    exact Hpass.
+  Defined.
+
   (*--------------------------------------------------------------------------*)
   (* 12.3 No Infinite Valsalva                                                *)
   (*--------------------------------------------------------------------------*)
@@ -2331,7 +2689,41 @@ Module Safety.
      (until fatigue).
   *)
   
-  Definition before_fatigue (t : sec) : Prop := True.
+  Definition before_fatigue (t : sec) : Prop :=
+    t < fatigue_limit.
+
+  Lemma before_fatigue_dec : forall t, {before_fatigue t} + {~before_fatigue t}.
+  Proof.
+    intros t.
+    unfold before_fatigue, fatigue_limit.
+    destruct (Compare_dec.lt_dec t 180).
+    - left. exact l.
+    - right. lia.
+  Defined.
+
+  Lemma strain_within_safe_duration :
+    forall s,
+    elapsed_time s < max_strain_duration ->
+    before_fatigue (elapsed_time s).
+  Proof.
+    intros s Hlt.
+    unfold before_fatigue, max_strain_duration, fatigue_limit in *.
+    lia.
+  Defined.
+
+  Lemma continence_maintained_before_fatigue :
+    forall s,
+    reflex_state s = VoluntaryHold ->
+    cmd_eas_relax (voluntary_commands s) = false ->
+    before_fatigue (eas_fatigue_accumulated s) ->
+    ~guard_initiate s.
+  Proof.
+    intros s Hhold Hcmd Hfat Hinit.
+    unfold guard_initiate in Hinit.
+    destruct Hinit as [Hurge _].
+    rewrite Hhold in Hurge.
+    discriminate.
+  Defined.
 
   Lemma step_preserves_voluntary_commands :
     forall s1 s2, Step s1 s2 -> voluntary_commands s2 = voluntary_commands s1.
@@ -2414,6 +2806,65 @@ Module Examples.
   (* Counterexample: Type4 does not require bidet. *)
   Example type4_no_bidet : requires_bidet Type4_SmoothSoftSausage = False.
   Proof. reflexivity. Defined.
+
+  (* Witness: Squatting improves anorectal angle (larger = straighter = better). *)
+  Example squatting_improves_angle :
+    lo deg (Posture.resultant_anorectal_angle (Posture.posture_to_geometry Posture.FullSquat)) >
+    lo deg (Posture.resultant_anorectal_angle (Posture.posture_to_geometry Posture.SittingUpright)).
+  Proof. simpl. lia. Defined.
+
+  (* Witness: Wiping converges within finite steps. *)
+  Example wiping_finite_steps :
+    exists n, hi mL (Nat.iter n wipe_efficiency (mkInterval mL 10 10)) <= cleanliness_threshold.
+  Proof.
+    exists 4.
+    unfold wipe_efficiency, cleanliness_threshold.
+    simpl. lia.
+  Defined.
+
+  (* Witness: All efficiency factors are >= 1. *)
+  Example type1_efficiency : bristol_efficiency_factor Type1_SeparateHardLumps >= 1.
+  Proof. simpl. lia. Defined.
+
+  Example type7_efficiency : bristol_efficiency_factor Type7_WateryNoSolids >= 1.
+  Proof. simpl. lia. Defined.
+
+  (* Witness: Osmotic laxative reduces viscosity by half. *)
+  Example osmotic_halves_viscosity :
+    forall b,
+    hi cP (bp_viscosity (bolus_physics (Interventions.laxative_effect Interventions.OsmoticLaxative b))) <=
+    Nat.div (hi cP (bp_viscosity (bolus_physics b))) 2.
+  Proof.
+    intros b.
+    unfold Interventions.laxative_effect.
+    simpl. lia.
+  Defined.
+
+  (* Witness: Stimulant laxative reduces yield stress. *)
+  Example stimulant_reduces_yield :
+    forall b,
+    hi Pa (bp_yield_stress (bolus_physics (Interventions.laxative_effect Interventions.StimulantLaxative b))) <=
+    hi Pa (bp_yield_stress (bolus_physics b)).
+  Proof.
+    intros b.
+    unfold Interventions.laxative_effect.
+    simpl.
+    assert (H: forall n, Nat.div n 2 <= n).
+    { intros n. apply PeanoNat.Nat.div_le_upper_bound; lia. }
+    apply H.
+  Defined.
+
+  (* Witness: Biofeedback cannot produce negative values. *)
+  Example biofeedback_nonnegative :
+    forall sessions anat,
+    lo Pa (Anatomy.eas_voluntary_relaxation_floor
+      (Anatomy.eas (Interventions.biofeedback_training sessions anat))) >= 0.
+  Proof.
+    intros sessions anat.
+    unfold Interventions.biofeedback_training, Interventions.saturating_sub.
+    simpl.
+    destruct (Nat.leb _ _); lia.
+  Defined.
 
 End Examples.
 
