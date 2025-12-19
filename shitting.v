@@ -42,12 +42,14 @@ Module Units.
   Definition mL_le : mL -> mL -> Prop := le.
   Definition sec_le : sec -> sec -> Prop := le.
   Definition deg_le : deg -> deg -> Prop := le.
+  Definition cP_le : cP -> cP -> Prop := le.
 
   Notation "x <=mm y" := (mm_le x y) (at level 70).
   Notation "x <=Pa y" := (Pa_le x y) (at level 70).
   Notation "x <=mL y" := (mL_le x y) (at level 70).
   Notation "x <=sec y" := (sec_le x y) (at level 70).
   Notation "x <=deg y" := (deg_le x y) (at level 70).
+  Notation "x <=cP y" := (cP_le x y) (at level 70).
 
   Class LeRefl (A : Type) (le : A -> A -> Prop) := le_refl : forall x, le x x.
 
@@ -99,6 +101,19 @@ Module Units.
   Definition mm_add (x y : mm) : mm := x + y.
   Definition mm_div (x y : mm) : mm := Nat.div x (S y).
 
+  (*
+     Interval subtraction: [a,b] - [c,d] = [a-d, b-c]
+
+     Note: This uses saturating subtraction (Pa_sub), so if a < d, the result
+     is [0, b-c]. This means:
+     1. The result is always non-negative (physically: pressure can't be negative)
+     2. When i1 < i2 (resistance exceeds expulsive force), result saturates to 0
+     3. The interval may become "inverted" (lo > hi) in edge cases, but
+        subsequent operations handle this safely via saturating arithmetic.
+
+     For pressure differentials, saturation to 0 correctly models "no flow"
+     when resistance exceeds expulsive force.
+  *)
   Definition iv_sub (i1 i2 : Interval Pa) : Interval Pa :=
     mkInterval Pa (Pa_sub (lo Pa i1) (hi Pa i2)) (Pa_sub (hi Pa i1) (lo Pa i2)).
 
@@ -675,12 +690,24 @@ Module Pressure.
   (*--------------------------------------------------------------------------*)
   (* 4.1 Resistance Model                                                     *)
   (*--------------------------------------------------------------------------*)
-  
+
   (*
-     Total resistance = sphincter pressure + frictional resistance + 
-                        geometric resistance from anorectal angle
+     Total resistance = sphincter pressure + frictional resistance +
+                        geometric resistance from anorectal angle.
+
+     Friction model: Derived from Hagen-Poiseuille, simplified.
+     ΔP = (8 * μ * L * Q) / (π * r^4) simplifies to:
+     friction ∝ (viscosity * length) / (diameter^2 * scaling)
+
+     The scaling factor accounts for:
+     - Unit conversion (cP to Pa·s requires /1000)
+     - Cross-sectional geometry (π * r^2 factor)
+     - Typical flow rate assumptions
+
+     With friction_scaling_divisor = diameter^2 * 10, we get physiologically
+     reasonable friction values in the 100-500 Pa range for normal stool.
   *)
-  
+
   Record ResistanceComponents := mkResistance {
     r_ias : Interval Pa;          (* internal sphincter contribution *)
     r_eas : Interval Pa;          (* external sphincter contribution *)
@@ -688,22 +715,100 @@ Module Pressure.
     r_angle : Interval Pa;        (* anorectal angle penalty *)
     r_total : Interval Pa;        (* sum with interaction terms *)
   }.
-  
+
+  Definition friction_scaling_divisor (diameter : Interval mm) : nat :=
+    let d_avg := Nat.div (lo mm diameter + hi mm diameter) 2 in
+    S (d_avg * d_avg * 10).
+
+  Definition compute_friction (b : Bolus) : Interval Pa :=
+    let viscosity := bp_viscosity b in
+    let length := bolus_length b in
+    let diameter := bolus_max_diameter b in
+    let divisor := friction_scaling_divisor diameter in
+    let raw_lo := Nat.mul (lo cP viscosity) (lo mm length) in
+    let raw_hi := Nat.mul (hi cP viscosity) (hi mm length) in
+    mkInterval Pa (Nat.div raw_lo divisor) (Nat.div raw_hi divisor).
+
+  Lemma compute_friction_bounded :
+    forall b : Bolus,
+    interval_wf cP_le (bp_viscosity (bolus_physics b)) ->
+    interval_wf mm_le (bolus_length b) ->
+    lo Pa (compute_friction b) <= hi Pa (compute_friction b).
+  Proof.
+    intros b Hv Hl.
+    unfold compute_friction, interval_wf, cP_le, mm_le in *.
+    simpl.
+    set (divisor := friction_scaling_divisor (bolus_max_diameter b)).
+    assert (Hdiv_pos: divisor > 0) by (unfold divisor, friction_scaling_divisor; lia).
+    assert (Hnum: lo cP (bp_viscosity (bolus_physics b)) * lo mm (bolus_length b) <=
+                  hi cP (bp_viscosity (bolus_physics b)) * hi mm (bolus_length b)).
+    { apply PeanoNat.Nat.mul_le_mono; assumption. }
+    apply PeanoNat.Nat.div_le_mono with (c := divisor) in Hnum.
+    - exact Hnum.
+    - lia.
+  Defined.
+
   Definition compute_resistance
     (anat : AnatomicalConfig) (b : Bolus) (pg : PostureGeometry)
     : ResistanceComponents :=
     let ias_r := ias_resting_pressure (ias anat) in
     let eas_r := eas_resting_pressure (eas anat) in
-    let friction := mkInterval Pa
-      (Nat.mul (lo cP (bp_viscosity b)) (lo mm (bolus_length b)))
-      (Nat.mul (hi cP (bp_viscosity b)) (hi mm (bolus_length b))) in
+    let friction := compute_friction b in
     let angle_r := angle_pressure_relationship
       (lo deg (resultant_anorectal_angle pg)) b in
     let total := mkInterval Pa
       (lo Pa ias_r + lo Pa eas_r + lo Pa friction + lo Pa angle_r)
       (hi Pa ias_r + hi Pa eas_r + hi Pa friction + hi Pa angle_r) in
     mkResistance ias_r eas_r friction angle_r total.
-  
+
+  Definition compute_resistance_with_sphincter_state
+    (b : Bolus) (pg : PostureGeometry)
+    (ias_actual eas_actual : Interval Pa)
+    : ResistanceComponents :=
+    let friction := compute_friction b in
+    let angle_r := angle_pressure_relationship
+      (lo deg (resultant_anorectal_angle pg)) b in
+    let total := mkInterval Pa
+      (lo Pa ias_actual + lo Pa eas_actual + lo Pa friction + lo Pa angle_r)
+      (hi Pa ias_actual + hi Pa eas_actual + hi Pa friction + hi Pa angle_r) in
+    mkResistance ias_actual eas_actual friction angle_r total.
+
+  Definition relaxed_sphincter_pressure : Interval Pa :=
+    mkInterval Pa 500 500.
+
+  Definition compute_expulsion_resistance (b : Bolus) (pg : PostureGeometry)
+    : ResistanceComponents :=
+    compute_resistance_with_sphincter_state b pg
+      relaxed_sphincter_pressure relaxed_sphincter_pressure.
+
+  Lemma expulsion_resistance_le_resting :
+    forall anat b pg,
+    500 <= hi Pa (ias_resting_pressure (ias anat)) ->
+    500 <= hi Pa (eas_resting_pressure (eas anat)) ->
+    hi Pa (r_total (compute_expulsion_resistance b pg)) <=
+    hi Pa (r_total (compute_resistance anat b pg)).
+  Proof.
+    intros anat b pg Hias Heas.
+    unfold compute_expulsion_resistance, compute_resistance_with_sphincter_state,
+           compute_resistance, relaxed_sphincter_pressure.
+    simpl.
+    lia.
+  Defined.
+
+  Lemma le_from_leb : forall n m, Nat.leb n m = true -> n <= m.
+  Proof.
+    intros n m H.
+    apply PeanoNat.Nat.leb_le.
+    exact H.
+  Defined.
+
+  Lemma default_anatomy_has_adequate_resting_pressures :
+    500 <= hi Pa (ias_resting_pressure (ias default_anatomy)) /\
+    500 <= hi Pa (eas_resting_pressure (eas default_anatomy)).
+  Proof.
+    split; apply le_from_leb; native_compute; reflexivity.
+  Defined.
+
   (*--------------------------------------------------------------------------*)
   (* 4.2 Expulsive Force Model                                                *)
   (*--------------------------------------------------------------------------*)
@@ -725,6 +830,32 @@ Module Pressure.
   Definition peristaltic_base_hi : Pa := 1500.
   Definition compression_bonus : Pa := 1000.
 
+  (*
+     Gravity model: Simplified posture-dependent pressure contribution.
+
+     Full physics would be: P_gravity = (ρ × g × h × sin θ) / A
+     where:
+       ρ = stool density (~1000 kg/m³)
+       g = 9.81 m/s²
+       h = bolus height/length
+       θ = angle from horizontal
+       A = cross-sectional area
+
+     We approximate this with posture-dependent constants because:
+     1. The angle changes with posture (squatting > sitting > standing)
+     2. Thigh compression adds effective pressure in squatting/sitting
+     3. Pelvic floor relaxation reduces counter-pressure
+
+     The `e_gravity_assist` field combines:
+     - pelvic_floor_relaxation_bonus: angle-dependent relaxation benefit
+     - compression_bonus: thigh-abdomen compression in bent postures
+
+     This produces physiologically reasonable values:
+     - Standing: ~500-1000 Pa (minimal gravity assist)
+     - Sitting: ~1500-2500 Pa (moderate)
+     - Squatting: ~2500-3500 Pa (optimal)
+  *)
+
   Definition compute_expulsive
     (anat : AnatomicalConfig) (pg : PostureGeometry) : ExpulsiveComponents :=
     let aw := abdominal_wall anat in
@@ -738,7 +869,7 @@ Module Pressure.
     let capped_lo := Nat.min raw_total_lo safe_expulsive_bound in
     let capped_hi := Nat.min raw_total_hi safe_expulsive_bound in
     mkExpulsive valsalva peristalsis gravity (mkInterval Pa capped_lo capped_hi).
-  
+
   (*--------------------------------------------------------------------------*)
   (* 4.3 Pressure Differential                                                *)
   (*--------------------------------------------------------------------------*)
@@ -759,6 +890,24 @@ Module Pressure.
   Definition passage_possible (exp : ExpulsiveComponents) (res : ResistanceComponents) : Prop :=
     lo Pa (e_total exp) > hi Pa (r_total res).
   
+  (*
+     Flow rate model: Linearized Bingham plastic approximation.
+
+     For a Bingham plastic (non-Newtonian fluid with yield stress), flow through
+     a tube follows: Q = (πR⁴/8μL)(ΔP - τ_y) when ΔP > τ_y, else Q = 0.
+
+     We simplify to: flow ∝ (ΔP - τ_y) / μ
+
+     This captures the essential physics:
+     - No flow below yield stress (captures stool consistency)
+     - Flow rate increases with pressure differential
+     - Flow rate decreases with viscosity
+     - Units: (Pa - Pa) / cP = dimensionless ratio, scaled to mm advancement
+
+     The (S viscosity) denominator prevents division by zero and provides
+     a scaling factor that produces reasonable mm/tick values.
+  *)
+
   Definition flow_rate
     (pressure_diff : Interval Pa) (physics : BolusPhysics) : Interval mm :=
     let viscosity := bp_viscosity physics in
@@ -1033,9 +1182,22 @@ Module StateMachine.
   }.
   
   (*--------------------------------------------------------------------------*)
+  (* 6.1.1 State Well-Formedness                                              *)
+  (*--------------------------------------------------------------------------*)
+
+  Definition position_within_bolus (s : SystemState) : Prop :=
+    match bolus s with
+    | None => True
+    | Some b => hi mm (bolus_position s) <= hi mm (Bolus.bolus_length b)
+    end.
+
+  Definition state_wf (s : SystemState) : Prop :=
+    position_within_bolus s.
+
+  (*--------------------------------------------------------------------------*)
   (* 6.2 Transition Guards                                                    *)
   (*--------------------------------------------------------------------------*)
-  
+
   Definition urge_threshold : mL := 100.
 
   Definition guard_urge (s : SystemState) : Prop :=
@@ -1144,7 +1306,7 @@ Module StateMachine.
     | Some b =>
         let pg := Posture.posture_to_geometry (posture s) in
         let exp := Pressure.compute_expulsive (anatomy s) pg in
-        let res := Pressure.compute_resistance (anatomy s) b pg in
+        let res := Pressure.compute_expulsion_resistance b pg in
         let diff := Pressure.pressure_differential exp res in
         Pressure.flow_rate diff (Bolus.bolus_physics b)
     end.
@@ -1215,6 +1377,41 @@ Module StateMachine.
     simpl.
     destruct (Nat.leb (hi mm (bolus_position s)) (lo mm (compute_bolus_advancement s))); lia.
   Defined.
+
+  Lemma transition_expulsion_tick_preserves_wf :
+    forall s,
+    position_within_bolus s ->
+    position_within_bolus (transition_expulsion_tick s).
+  Proof.
+    intros s Hwf.
+    unfold position_within_bolus in *.
+    unfold transition_expulsion_tick.
+    simpl.
+    destruct (bolus s) as [b|].
+    - assert (Hdec: hi mm (bolus_position (transition_expulsion_tick s)) <=
+                    hi mm (bolus_position s)).
+      { apply transition_expulsion_tick_decreases. }
+      unfold transition_expulsion_tick in Hdec. simpl in Hdec.
+      destruct (Nat.leb (hi mm (bolus_position s)) (lo mm (compute_bolus_advancement s))).
+      + lia.
+      + lia.
+    - exact I.
+  Defined.
+
+  Lemma all_phase_transitions_preserve_wf :
+    forall s,
+    position_within_bolus s ->
+    position_within_bolus (transition_to_urge s) /\
+    position_within_bolus (transition_to_hold s) /\
+    position_within_bolus (transition_to_initiation s) /\
+    position_within_bolus (transition_to_expulsion s) /\
+    position_within_bolus (transition_to_completion s).
+  Proof.
+    intros s Hwf.
+    unfold position_within_bolus in *.
+    repeat split; simpl; destruct (bolus s); try exact I; exact Hwf.
+  Defined.
+
   Lemma transition_to_completion_restores :
     forall s, resting_tone_threshold <=Pa lo Pa (eas_pressure (transition_to_completion s)) /\
               resting_tone_threshold <=Pa lo Pa (ias_pressure (transition_to_completion s)).
@@ -1274,6 +1471,37 @@ Module StateMachine.
       + apply IHHab.
         exact Hbc.
   Defined.
+
+  Lemma ms_step_r : forall a b c,
+    MultiStep a b -> Step b c -> MultiStep a c.
+  Proof.
+    intros a b c Hab Hbc.
+    apply ms_trans with b.
+    - exact Hab.
+    - apply ms_step with c.
+      + exact Hbc.
+      + apply ms_refl.
+  Defined.
+
+  Definition quiescent_empty (s : SystemState) : Prop :=
+    reflex_state s = Quiescent /\ bolus s = None.
+
+  Lemma quiescent_empty_no_step :
+    forall s s',
+    quiescent_empty s ->
+    ~ Step s s'.
+  Proof.
+    intros s s' [Hq Hb] Hstep.
+    inversion Hstep; subst;
+      try (unfold guard_urge in *; destruct H as [_ Hg]; rewrite Hb in Hg; exact Hg);
+      try (unfold guard_hold, has_bolus in *; destruct H as [_ [_ Hg]]; rewrite Hb in Hg; exact Hg);
+      try (unfold guard_initiate, has_bolus in *; destruct H as [_ [_ [_ Hg]]]; rewrite Hb in Hg; exact Hg);
+      try (unfold guard_fatigue_failure, has_bolus in *; destruct H as [_ [_ [_ Hg]]]; rewrite Hb in Hg; exact Hg);
+      try (unfold guard_expulsion_start, has_bolus in *; destruct H as [_ Hg]; rewrite Hb in Hg; exact Hg);
+      try (unfold guard_expulsion_tick in *; destruct H as [Hr _]; rewrite Hq in Hr; discriminate);
+      try (unfold guard_completion in *; destruct H as [Hr _]; rewrite Hq in Hr; discriminate);
+      try (unfold guard_reset in *; destruct H as [Hr _]; rewrite Hq in Hr; discriminate).
+  Qed.
 
 End StateMachine.
 
@@ -1564,7 +1792,7 @@ Module Termination.
     | Some b =>
         let pg := Posture.posture_to_geometry (posture s) in
         let exp := Pressure.compute_expulsive (anatomy s) pg in
-        let res := Pressure.compute_resistance (anatomy s) b pg in
+        let res := Pressure.compute_expulsion_resistance b pg in
         lo Pa (Pressure.e_total exp) > hi Pa (Pressure.r_total res)
     end.
 
@@ -1574,7 +1802,7 @@ Module Termination.
     | Some b =>
         let pg := Posture.posture_to_geometry (posture s) in
         let exp := Pressure.compute_expulsive (anatomy s) pg in
-        let res := Pressure.compute_resistance (anatomy s) b pg in
+        let res := Pressure.compute_expulsion_resistance b pg in
         let physics := Bolus.bolus_physics b in
         lo Pa (Pressure.e_total exp) > hi Pa (Pressure.r_total res) + Pressure.margin_for_flow physics
     end.
@@ -1603,6 +1831,185 @@ Module Termination.
     - unfold Pressure.margin_for_flow in Hsuff. lia.
     - exact Hsuff.
   Defined.
+
+  (*--------------------------------------------------------------------------*)
+  (* Concrete witness: Type4 + FullSquat + default anatomy has positive flow. *)
+  (*--------------------------------------------------------------------------*)
+
+  Definition typical_bolus : Bolus.Bolus :=
+    Bolus.make_bolus Bolus.Type4_SmoothSoftSausage (mkInterval mL 150 200).
+
+  Definition typical_state : SystemState :=
+    mkState
+      Anatomy.default_anatomy
+      (Some typical_bolus)
+      (mkInterval mm 100 150)
+      Posture.FullSquat
+      ExpulsionPhase
+      (Neural.commands_for_defecation (mkInterval Pa 5000 8000))
+      relaxed_pressure
+      relaxed_pressure
+      (mkInterval deg 130 140)
+      0
+      0.
+
+  Lemma typical_state_has_bolus : has_bolus typical_state.
+  Proof.
+    exact I.
+  Defined.
+
+  Definition typical_expulsive : Pressure.ExpulsiveComponents :=
+    Pressure.compute_expulsive Anatomy.default_anatomy
+      (Posture.posture_to_geometry Posture.FullSquat).
+
+  Definition typical_resistance : Pressure.ResistanceComponents :=
+    Pressure.compute_expulsion_resistance typical_bolus
+      (Posture.posture_to_geometry Posture.FullSquat).
+
+  Definition typical_margin : Pa :=
+    Pressure.margin_for_flow (Bolus.bolus_physics typical_bolus).
+
+  Lemma gt_from_ltb : forall n m, Nat.ltb m n = true -> n > m.
+  Proof.
+    intros n m H.
+    apply PeanoNat.Nat.ltb_lt in H.
+    lia.
+  Defined.
+
+  Lemma typical_expulsive_lo_value :
+    lo Pa (Pressure.e_total typical_expulsive) = 7000.
+  Proof.
+    native_compute.
+    reflexivity.
+  Qed.
+
+  Lemma typical_resistance_hi_value :
+    hi Pa (Pressure.r_total typical_resistance) = 1683.
+  Proof.
+    native_compute.
+    reflexivity.
+  Qed.
+
+  Lemma typical_margin_value : typical_margin = 4150.
+  Proof.
+    native_compute.
+    reflexivity.
+  Qed.
+
+  Lemma typical_sufficient_pressure :
+    lo Pa (Pressure.e_total typical_expulsive) >
+    hi Pa (Pressure.r_total typical_resistance) + typical_margin.
+  Proof.
+    rewrite typical_expulsive_lo_value.
+    rewrite typical_resistance_hi_value.
+    rewrite typical_margin_value.
+    apply gt_from_ltb.
+    native_compute.
+    reflexivity.
+  Qed.
+
+  Theorem typical_state_sufficient_pressure_with_margin :
+    sufficient_pressure_with_margin typical_state.
+  Proof.
+    unfold sufficient_pressure_with_margin, typical_state.
+    change (Pressure.compute_expulsive Anatomy.default_anatomy
+      (Posture.posture_to_geometry Posture.FullSquat)) with typical_expulsive.
+    change (Pressure.compute_expulsion_resistance typical_bolus
+      (Posture.posture_to_geometry Posture.FullSquat)) with typical_resistance.
+    change (Pressure.margin_for_flow (Bolus.bolus_physics typical_bolus))
+      with typical_margin.
+    exact typical_sufficient_pressure.
+  Defined.
+
+  Theorem typical_state_has_positive_flow : has_positive_flow typical_state.
+  Proof.
+    apply sufficient_pressure_implies_flow.
+    exact typical_state_sufficient_pressure_with_margin.
+  Defined.
+
+  (*--------------------------------------------------------------------------*)
+  (* Additional witnesses: default_anatomy works across normal Bristol types. *)
+  (*--------------------------------------------------------------------------*)
+
+  Definition type3_bolus : Bolus.Bolus :=
+    Bolus.make_bolus Bolus.Type3_SausageWithCracks (mkInterval mL 150 200).
+
+  Definition type3_expulsive : Pressure.ExpulsiveComponents :=
+    Pressure.compute_expulsive Anatomy.default_anatomy
+      (Posture.posture_to_geometry Posture.FullSquat).
+
+  Definition type3_resistance : Pressure.ResistanceComponents :=
+    Pressure.compute_expulsion_resistance type3_bolus
+      (Posture.posture_to_geometry Posture.FullSquat).
+
+  Definition type3_margin : Pa :=
+    Pressure.margin_for_flow (Bolus.bolus_physics type3_bolus).
+
+  Lemma type3_expulsive_lo : lo Pa (Pressure.e_total type3_expulsive) = 7000.
+  Proof. native_compute. reflexivity. Qed.
+
+  Lemma type3_resistance_hi : hi Pa (Pressure.r_total type3_resistance) = 2367.
+  Proof. native_compute. reflexivity. Qed.
+
+  Lemma type3_margin_val : type3_margin = 8300.
+  Proof. native_compute. reflexivity. Qed.
+
+  Theorem type3_passage_possible :
+    lo Pa (Pressure.e_total type3_expulsive) >
+    hi Pa (Pressure.r_total type3_resistance).
+  Proof.
+    rewrite type3_expulsive_lo, type3_resistance_hi.
+    apply gt_from_ltb.
+    native_compute.
+    reflexivity.
+  Qed.
+
+  Lemma type3_margin_insufficient :
+    lo Pa (Pressure.e_total type3_expulsive) <=
+    hi Pa (Pressure.r_total type3_resistance) + type3_margin.
+  Proof.
+    rewrite type3_expulsive_lo, type3_resistance_hi, type3_margin_val.
+    apply le_from_leb.
+    native_compute.
+    reflexivity.
+  Qed.
+
+  (*--------------------------------------------------------------------------*)
+  (* Counterexample: Type1 constipated stool may NOT have positive flow.      *)
+  (*--------------------------------------------------------------------------*)
+
+  Definition type1_bolus : Bolus.Bolus :=
+    Bolus.make_bolus Bolus.Type1_SeparateHardLumps (mkInterval mL 150 200).
+
+  Definition type1_resistance : Pressure.ResistanceComponents :=
+    Pressure.compute_expulsion_resistance type1_bolus
+      (Posture.posture_to_geometry Posture.Standing).
+
+  Definition standing_expulsive : Pressure.ExpulsiveComponents :=
+    Pressure.compute_expulsive Anatomy.default_anatomy
+      (Posture.posture_to_geometry Posture.Standing).
+
+  Definition type1_margin : Pa :=
+    Pressure.margin_for_flow (Bolus.bolus_physics type1_bolus).
+
+  Lemma standing_expulsive_lo : lo Pa (Pressure.e_total standing_expulsive) = 4500.
+  Proof. native_compute. reflexivity. Qed.
+
+  Lemma type1_resistance_hi : hi Pa (Pressure.r_total type1_resistance) = 18327.
+  Proof. native_compute. reflexivity. Qed.
+
+  Lemma type1_margin_val : type1_margin = 51000.
+  Proof. native_compute. reflexivity. Qed.
+
+  Lemma type1_standing_insufficient :
+    lo Pa (Pressure.e_total standing_expulsive) <=
+    hi Pa (Pressure.r_total type1_resistance) + type1_margin.
+  Proof.
+    rewrite standing_expulsive_lo, type1_resistance_hi, type1_margin_val.
+    apply le_from_leb.
+    native_compute.
+    reflexivity.
+  Qed.
 
   Lemma tick_strictly_decreases :
     forall s,
@@ -2868,6 +3275,15 @@ Module Examples.
 
 End Examples.
 
+
+(*============================================================================*)
+(*                    AXIOM CHECK: VERIFY NO HIDDEN AXIOMS                    *)
+(*============================================================================*)
+
+Print Assumptions Termination.defecation_terminates.
+Print Assumptions Termination.typical_state_has_positive_flow.
+Print Assumptions StateMachine.quiescent_empty_no_step.
+Print Assumptions Safety.no_dangerous_straining.
 
 (*============================================================================*)
 (*                                   EOF                                      *)
