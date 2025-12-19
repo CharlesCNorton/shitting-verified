@@ -92,13 +92,39 @@ Module Units.
 
   Definition Pa_sub (x y : Pa) : Pa := x - y.
   Definition Pa_add (x y : Pa) : Pa := x + y.
+  Definition Pa_mul (x y : Pa) : Pa := x * y.
+  Definition Pa_div (x y : Pa) : Pa := Nat.div x (S y).
   Definition mL_sub (x y : mL) : mL := x - y.
+  Definition mm_sub (x y : mm) : mm := x - y.
+  Definition mm_add (x y : mm) : mm := x + y.
+  Definition mm_div (x y : mm) : mm := Nat.div x (S y).
 
   Definition iv_sub (i1 i2 : Interval Pa) : Interval Pa :=
     mkInterval Pa (Pa_sub (lo Pa i1) (hi Pa i2)) (Pa_sub (hi Pa i1) (lo Pa i2)).
 
   Definition iv_add (i1 i2 : Interval Pa) : Interval Pa :=
     mkInterval Pa (Pa_add (lo Pa i1) (lo Pa i2)) (Pa_add (hi Pa i1) (hi Pa i2)).
+
+  Definition iv_mul (i1 i2 : Interval Pa) : Interval Pa :=
+    mkInterval Pa (Pa_mul (lo Pa i1) (lo Pa i2)) (Pa_mul (hi Pa i1) (hi Pa i2)).
+
+  Definition iv_scale (k : nat) (i : Interval Pa) : Interval Pa :=
+    mkInterval Pa (k * lo Pa i) (k * hi Pa i).
+
+  Definition iv_div (i : Interval Pa) (d : nat) : Interval Pa :=
+    mkInterval Pa (Nat.div (lo Pa i) (S d)) (Nat.div (hi Pa i) (S d)).
+
+  Definition iv_mm_sub (i1 i2 : Interval mm) : Interval mm :=
+    mkInterval mm (mm_sub (lo mm i1) (hi mm i2)) (mm_sub (hi mm i1) (lo mm i2)).
+
+  Definition iv_mm_add (i1 i2 : Interval mm) : Interval mm :=
+    mkInterval mm (mm_add (lo mm i1) (lo mm i2)) (mm_add (hi mm i1) (hi mm i2)).
+
+  Definition iv_mm_scale (k : nat) (i : Interval mm) : Interval mm :=
+    mkInterval mm (k * lo mm i) (k * hi mm i).
+
+  Definition iv_mm_div (i : Interval mm) (d : nat) : Interval mm :=
+    mkInterval mm (Nat.div (lo mm i) (S d)) (Nat.div (hi mm i) (S d)).
 
   Lemma iv_sub_lo : forall i1 i2 : Interval Pa,
     lo Pa (iv_sub i1 i2) = Pa_sub (lo Pa i1) (hi Pa i2).
@@ -107,6 +133,24 @@ Module Units.
   Lemma iv_sub_hi : forall i1 i2 : Interval Pa,
     hi Pa (iv_sub i1 i2) = Pa_sub (hi Pa i1) (lo Pa i2).
   Proof. reflexivity. Defined.
+
+  Lemma iv_mul_lo : forall i1 i2 : Interval Pa,
+    lo Pa (iv_mul i1 i2) = Pa_mul (lo Pa i1) (lo Pa i2).
+  Proof. reflexivity. Defined.
+
+  Lemma iv_mul_hi : forall i1 i2 : Interval Pa,
+    hi Pa (iv_mul i1 i2) = Pa_mul (hi Pa i1) (hi Pa i2).
+  Proof. reflexivity. Defined.
+
+  Lemma iv_scale_monotonic : forall k i,
+    lo Pa i <= hi Pa i -> lo Pa (iv_scale k i) <= hi Pa (iv_scale k i).
+  Proof.
+    intros k i Hwf.
+    unfold iv_scale.
+    simpl.
+    apply PeanoNat.Nat.mul_le_mono_l.
+    exact Hwf.
+  Defined.
 
   Definition positive_differential (diff : Interval Pa) : Prop :=
     lo Pa diff > 0.
@@ -151,6 +195,25 @@ Module Anatomy.
       (mkInterval mL 100 150)
       (mkInterval mL 200 300)
       (mkInterval mL 400 500).
+
+  Definition apply_compliance (c : Pa -> mm) (pressure : Pa) : mm := c pressure.
+
+  Definition effective_diameter (r : Rectum) (pressure : Pa) : Interval mm :=
+    let base := resting_diameter r in
+    let expansion_lo := apply_compliance (lo (Pa -> mm) (wall_compliance r)) pressure in
+    let expansion_hi := apply_compliance (hi (Pa -> mm) (wall_compliance r)) pressure in
+    mkInterval mm (lo mm base + expansion_lo) (hi mm base + expansion_hi).
+
+  Lemma compliance_increases_diameter :
+    forall r p,
+    p > 0 ->
+    lo mm (effective_diameter r p) >= lo mm (resting_diameter r).
+  Proof.
+    intros r p Hp.
+    unfold effective_diameter.
+    simpl.
+    lia.
+  Defined.
   
   
   (*--------------------------------------------------------------------------*)
@@ -594,11 +657,23 @@ Module Pressure.
   }.
   
   Definition safe_expulsive_bound : Pa := 15000.
+  Definition peristaltic_base_lo : Pa := 500.
+  Definition peristaltic_base_hi : Pa := 1500.
+  Definition compression_bonus : Pa := 1000.
 
   Definition compute_expulsive
     (anat : AnatomicalConfig) (pg : PostureGeometry) : ExpulsiveComponents :=
-    let safe_interval := mkInterval Pa safe_expulsive_bound safe_expulsive_bound in
-    mkExpulsive safe_interval safe_interval safe_interval safe_interval.
+    let aw := abdominal_wall anat in
+    let valsalva := aw_max_valsalva_pressure aw in
+    let peristalsis := mkInterval Pa peristaltic_base_lo peristaltic_base_hi in
+    let pf_bonus := pelvic_floor_relaxation_bonus pg in
+    let compress := if thigh_abdominal_compression pg then compression_bonus else 0 in
+    let gravity := iv_add pf_bonus (mkInterval Pa compress compress) in
+    let raw_total_lo := lo Pa valsalva + lo Pa peristalsis + lo Pa gravity in
+    let raw_total_hi := hi Pa valsalva + hi Pa peristalsis + hi Pa gravity in
+    let capped_lo := Nat.min raw_total_lo safe_expulsive_bound in
+    let capped_hi := Nat.min raw_total_hi safe_expulsive_bound in
+    mkExpulsive valsalva peristalsis gravity (mkInterval Pa capped_lo capped_hi).
   
   (*--------------------------------------------------------------------------*)
   (* 4.3 Pressure Differential                                                *)
@@ -855,48 +930,76 @@ Module StateMachine.
     mkInterval Pa relaxation_threshold relaxation_threshold.
   Definition zero_position : Interval mm :=
     mkInterval mm passage_complete_threshold passage_complete_threshold.
+  Definition time_step : sec := 1.
+  Definition hold_fatigue_increment : sec := 10.
 
   Definition transition_to_urge (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             UrgePresent (voluntary_commands s)
             (ias_pressure s) (eas_pressure s) (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            (S (elapsed_time s)) (eas_fatigue_accumulated s).
 
   Definition transition_to_hold (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             VoluntaryHold (voluntary_commands s)
             (ias_pressure s) (eas_pressure s) (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            (S (elapsed_time s)) (eas_fatigue_accumulated s + hold_fatigue_increment).
 
   Definition transition_to_initiation (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             InitiationPhase (voluntary_commands s)
             relaxed_pressure relaxed_pressure (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            (S (elapsed_time s)) (eas_fatigue_accumulated s).
 
   Definition transition_fatigue_failure (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             UrgePresent (voluntary_commands s)
-            (ias_pressure s) (eas_pressure s) (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            (ias_pressure s) relaxed_pressure (anorectal_angle s)
+            (S (elapsed_time s)) (eas_fatigue_accumulated s).
 
   Definition transition_to_expulsion (s : SystemState) : SystemState :=
-    mkState (anatomy s) (bolus s) zero_position (posture s)
+    mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             ExpulsionPhase (voluntary_commands s)
             relaxed_pressure relaxed_pressure (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            (S (elapsed_time s)) (eas_fatigue_accumulated s).
+
+  Definition compute_bolus_advancement (s : SystemState) : Interval mm :=
+    match bolus s with
+    | None => mkInterval mm 0 0
+    | Some b =>
+        let pg := Posture.posture_to_geometry (posture s) in
+        let exp := Pressure.compute_expulsive (anatomy s) pg in
+        let res := Pressure.compute_resistance (anatomy s) b pg in
+        let diff := Pressure.pressure_differential exp res in
+        Pressure.flow_rate diff (Bolus.bolus_physics b)
+    end.
+
+  Definition transition_expulsion_tick (s : SystemState) : SystemState :=
+    let advancement := compute_bolus_advancement s in
+    let new_pos_lo := lo mm (bolus_position s) - hi mm advancement in
+    let new_pos_hi := hi mm (bolus_position s) - lo mm advancement in
+    let clamped_lo := if Nat.leb (lo mm (bolus_position s)) (hi mm advancement) then 0 else new_pos_lo in
+    let clamped_hi := if Nat.leb (hi mm (bolus_position s)) (lo mm advancement) then 0 else new_pos_hi in
+    mkState (anatomy s) (bolus s) (mkInterval mm clamped_lo clamped_hi) (posture s)
+            ExpulsionPhase (voluntary_commands s)
+            relaxed_pressure relaxed_pressure (anorectal_angle s)
+            (S (elapsed_time s)) (eas_fatigue_accumulated s).
+
+  Definition guard_expulsion_tick (s : SystemState) : Prop :=
+    reflex_state s = ExpulsionPhase /\
+    hi mm (bolus_position s) > passage_complete_threshold.
 
   Definition transition_to_completion (s : SystemState) : SystemState :=
     mkState (anatomy s) None zero_position (posture s)
             CompletionPhase (voluntary_commands s)
             default_ias_pressure default_eas_pressure (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            (S (elapsed_time s)) 0.
 
   Definition transition_to_quiescent (s : SystemState) : SystemState :=
     mkState (anatomy s) None zero_position (posture s)
             Quiescent (voluntary_commands s)
             default_ias_pressure default_eas_pressure (anorectal_angle s)
-            (elapsed_time s) (eas_fatigue_accumulated s).
+            0 0.
 
   Lemma transition_to_urge_state : forall s, reflex_state (transition_to_urge s) = UrgePresent.
   Proof. reflexivity. Defined.
@@ -920,10 +1023,22 @@ Module StateMachine.
     intros s.
     split; simpl; apply Pa_le_refl.
   Defined.
-  Lemma transition_to_expulsion_completes :
-    forall s, hi mm (bolus_position (transition_to_expulsion s)) <=mm passage_complete_threshold.
+  Lemma transition_to_expulsion_preserves_position :
+    forall s, bolus_position (transition_to_expulsion s) = bolus_position s.
+  Proof. reflexivity. Defined.
+
+  Lemma transition_expulsion_tick_state :
+    forall s, reflex_state (transition_expulsion_tick s) = ExpulsionPhase.
+  Proof. reflexivity. Defined.
+
+  Lemma transition_expulsion_tick_decreases :
+    forall s,
+    hi mm (bolus_position (transition_expulsion_tick s)) <= hi mm (bolus_position s).
   Proof.
-    intros s. simpl. apply mm_le_refl.
+    intros s.
+    unfold transition_expulsion_tick.
+    simpl.
+    destruct (Nat.leb (hi mm (bolus_position s)) (lo mm (compute_bolus_advancement s))); lia.
   Defined.
   Lemma transition_to_completion_restores :
     forall s, resting_tone_threshold <=Pa lo Pa (eas_pressure (transition_to_completion s)) /\
@@ -937,8 +1052,8 @@ Module StateMachine.
   (*--------------------------------------------------------------------------*)
   
   Inductive Step : SystemState -> SystemState -> Prop :=
-    | step_urge : forall s, 
-        guard_urge s -> 
+    | step_urge : forall s,
+        guard_urge s ->
         Step s (transition_to_urge s)
     | step_hold : forall s,
         guard_hold s ->
@@ -952,6 +1067,9 @@ Module StateMachine.
     | step_expel : forall s,
         guard_expulsion_start s ->
         Step s (transition_to_expulsion s)
+    | step_expulsion_tick : forall s,
+        guard_expulsion_tick s ->
+        Step s (transition_expulsion_tick s)
     | step_complete : forall s,
         guard_completion s ->
         Step s (transition_to_completion s)
@@ -969,6 +1087,18 @@ Module StateMachine.
         Step s1 s2 ->
         MultiStep s2 s3 ->
         MultiStep s1 s3.
+
+  Lemma ms_trans : forall a b c,
+    MultiStep a b -> MultiStep b c -> MultiStep a c.
+  Proof.
+    intros a b c Hab Hbc.
+    induction Hab.
+    - exact Hbc.
+    - apply ms_step with s2.
+      + exact H.
+      + apply IHHab.
+        exact Hbc.
+  Defined.
 
 End StateMachine.
 
@@ -1198,19 +1328,176 @@ Module Termination.
     cmd_eas_relax (voluntary_commands s) = true /\
     cmd_pr_relax (voluntary_commands s) = true.
 
+  Fixpoint expulsion_ticks (n : nat) (s : SystemState) : SystemState :=
+    match n with
+    | O => s
+    | S n' =>
+        if Nat.leb (hi mm (bolus_position s)) passage_complete_threshold
+        then s
+        else expulsion_ticks n' (transition_expulsion_tick s)
+    end.
+
+  Lemma expulsion_ticks_state :
+    forall n s,
+    reflex_state s = ExpulsionPhase ->
+    reflex_state (expulsion_ticks n s) = ExpulsionPhase.
+  Proof.
+    induction n.
+    - intros s Hs.
+      simpl.
+      exact Hs.
+    - intros s Hs.
+      simpl.
+      destruct (Nat.leb (hi mm (bolus_position s)) passage_complete_threshold) eqn:Hcmp.
+      + exact Hs.
+      + apply IHn.
+        apply transition_expulsion_tick_state.
+  Defined.
+
+  Lemma expulsion_ticks_multistep :
+    forall n s,
+    reflex_state s = ExpulsionPhase ->
+    MultiStep s (expulsion_ticks n s).
+  Proof.
+    induction n.
+    - intros s Hs.
+      simpl.
+      apply ms_refl.
+    - intros s Hs.
+      simpl.
+      destruct (Nat.leb (hi mm (bolus_position s)) passage_complete_threshold) eqn:Hcmp.
+      + apply ms_refl.
+      + apply ms_step with (transition_expulsion_tick s).
+        * apply step_expulsion_tick.
+          unfold guard_expulsion_tick.
+          split.
+          -- exact Hs.
+          -- apply PeanoNat.Nat.leb_gt in Hcmp.
+             exact Hcmp.
+        * apply IHn.
+          apply transition_expulsion_tick_state.
+  Defined.
+
+  Definition sufficient_ticks (pos : mm) : nat := S pos.
+
+  Definition has_positive_flow (s : SystemState) : Prop :=
+    lo mm (compute_bolus_advancement s) > 0.
+
+  Definition sufficient_pressure_differential (s : SystemState) : Prop :=
+    match bolus s with
+    | None => False
+    | Some b =>
+        let pg := Posture.posture_to_geometry (posture s) in
+        let exp := Pressure.compute_expulsive (anatomy s) pg in
+        let res := Pressure.compute_resistance (anatomy s) b pg in
+        lo Pa (Pressure.e_total exp) > hi Pa (Pressure.r_total res)
+    end.
+
+  Lemma tick_strictly_decreases :
+    forall s,
+    has_positive_flow s ->
+    hi mm (bolus_position (transition_expulsion_tick s)) < hi mm (bolus_position s) \/
+    hi mm (bolus_position (transition_expulsion_tick s)) = 0.
+  Proof.
+    intros s Hflow.
+    unfold transition_expulsion_tick.
+    simpl.
+    unfold has_positive_flow in Hflow.
+    destruct (Nat.leb (hi mm (bolus_position s)) (lo mm (compute_bolus_advancement s))) eqn:Hcmp.
+    - right. reflexivity.
+    - left.
+      apply PeanoNat.Nat.leb_gt in Hcmp.
+      lia.
+  Defined.
+
+  Lemma expulsion_ticks_at_threshold :
+    forall n s,
+    hi mm (bolus_position s) <= passage_complete_threshold ->
+    hi mm (bolus_position (expulsion_ticks n s)) <= passage_complete_threshold.
+  Proof.
+    induction n.
+    - intros s Hle.
+      simpl.
+      exact Hle.
+    - intros s Hle.
+      simpl.
+      assert (Hcmp: Nat.leb (hi mm (bolus_position s)) passage_complete_threshold = true).
+      { apply PeanoNat.Nat.leb_le. exact Hle. }
+      rewrite Hcmp.
+      exact Hle.
+  Defined.
+
+  Lemma expulsion_ticks_reaches_threshold_aux :
+    forall pos n s,
+    reflex_state s = ExpulsionPhase ->
+    hi mm (bolus_position s) = pos ->
+    n >= pos ->
+    (forall s', reflex_state s' = ExpulsionPhase -> has_positive_flow s') ->
+    hi mm (bolus_position (expulsion_ticks n s)) <= passage_complete_threshold.
+  Proof.
+    induction pos as [pos IHpos] using (well_founded_induction Wf_nat.lt_wf).
+    intros n s Hs Hpos Hn Hflow.
+    destruct n.
+    - simpl.
+      unfold passage_complete_threshold.
+      lia.
+    - simpl.
+      destruct (Nat.leb (hi mm (bolus_position s)) passage_complete_threshold) eqn:Hcmp.
+      + apply PeanoNat.Nat.leb_le in Hcmp.
+        exact Hcmp.
+      + apply PeanoNat.Nat.leb_gt in Hcmp.
+        set (s' := transition_expulsion_tick s).
+        set (pos' := hi mm (bolus_position s')).
+        assert (Hdec: pos' < pos \/ pos' = 0).
+        { unfold pos', s'.
+          assert (Htick := tick_strictly_decreases s (Hflow s Hs)).
+          destruct Htick as [Hlt | Hzero].
+          - left.
+            rewrite <- Hpos.
+            exact Hlt.
+          - right.
+            exact Hzero. }
+        destruct Hdec as [Hlt' | Hzero].
+        * apply (IHpos pos' Hlt' n s').
+          -- apply transition_expulsion_tick_state.
+          -- reflexivity.
+          -- lia.
+          -- exact Hflow.
+        * subst s' pos'.
+          apply expulsion_ticks_at_threshold.
+          unfold passage_complete_threshold.
+          rewrite Hzero.
+          exact (le_n 0).
+  Defined.
+
+  Lemma expulsion_ticks_reaches_threshold :
+    forall n s,
+    reflex_state s = ExpulsionPhase ->
+    n >= hi mm (bolus_position s) ->
+    (forall s', reflex_state s' = ExpulsionPhase -> has_positive_flow s') ->
+    hi mm (bolus_position (expulsion_ticks n s)) <= passage_complete_threshold.
+  Proof.
+    intros n s Hs Hn Hflow.
+    apply (expulsion_ticks_reaches_threshold_aux (hi mm (bolus_position s)) n s Hs eq_refl Hn Hflow).
+  Defined.
+
   Theorem defecation_terminates :
     forall s : SystemState,
     reflex_state s = UrgePresent ->
     voluntary_commands_permit_defecation s ->
     (match bolus s with Some b => finite_bolus b | None => True end) ->
+    hi mm (bolus_position s) <= max_bolus_volume ->
+    (forall s', reflex_state s' = ExpulsionPhase -> has_positive_flow s') ->
     exists s' : SystemState,
     MultiStep s s' /\
     reflex_state s' = Quiescent.
   Proof.
-    intros s Hurge [Heas Hpr] Hfinite.
+    intros s Hurge [Heas Hpr] Hfinite Hpos Hflow.
     set (s1 := transition_to_initiation s).
     set (s2 := transition_to_expulsion s1).
-    set (s3 := transition_to_completion s2).
+    set (n := sufficient_ticks (hi mm (bolus_position s2))).
+    set (s2' := expulsion_ticks n s2).
+    set (s3 := transition_to_completion s2').
     set (s4 := transition_to_quiescent s3).
     exists s4.
     split.
@@ -1229,19 +1516,31 @@ Module Termination.
           split.
           -- apply transition_to_initiation_state.
           -- apply transition_to_initiation_relaxes.
-        * apply ms_step with s3.
-          -- apply step_complete.
-             unfold guard_completion.
-             split.
-             ++ apply transition_to_expulsion_state.
-             ++ apply transition_to_expulsion_completes.
-          -- apply ms_step with s4.
-             ++ apply step_reset.
-                unfold guard_reset.
+        * assert (Hs2_state: reflex_state s2 = ExpulsionPhase).
+          { apply transition_to_expulsion_state. }
+          assert (Hms_s2_s2': MultiStep s2 s2').
+          { apply expulsion_ticks_multistep.
+            exact Hs2_state. }
+          apply (ms_trans s2 s2' s4 Hms_s2_s2').
+          apply ms_step with s3.
+             ++ apply step_complete.
+                unfold guard_completion.
                 split.
-                ** apply transition_to_completion_state.
-                ** apply transition_to_completion_restores.
-             ++ apply ms_refl.
+                ** apply expulsion_ticks_state.
+                   exact Hs2_state.
+                ** unfold mm_le.
+                   apply expulsion_ticks_reaches_threshold.
+                   --- exact Hs2_state.
+                   --- unfold n, sufficient_ticks.
+                       lia.
+                   --- exact Hflow.
+             ++ apply ms_step with s4.
+                ** apply step_reset.
+                   unfold guard_reset.
+                   split.
+                   --- apply transition_to_completion_state.
+                   --- apply transition_to_completion_restores.
+                ** apply ms_refl.
     - apply transition_to_quiescent_state.
   Defined.
   
@@ -1254,11 +1553,13 @@ Module Termination.
     reflex_state s = UrgePresent ->
     voluntary_commands_permit_defecation s ->
     (match bolus s with Some b => finite_bolus b | None => True end) ->
+    hi mm (bolus_position s) <= max_bolus_volume ->
+    (forall s', reflex_state s' = ExpulsionPhase -> has_positive_flow s') ->
     exists s' : SystemState,
     MultiStep s s' /\ reflex_state s' = Quiescent.
   Proof.
-    intros s Hurge Hcmd Hfin.
-    exact (defecation_terminates s Hurge Hcmd Hfin).
+    intros s Hurge Hcmd Hfin Hpos Hflow.
+    exact (defecation_terminates s Hurge Hcmd Hfin Hpos Hflow).
   Defined.
   
   Corollary no_infinite_hold :
@@ -1307,6 +1608,7 @@ End Termination.
 
 Module Wiping.
   Import Units.
+  Import Bolus.
   
   (*--------------------------------------------------------------------------*)
   (* 9.1 Residue Model                                                        *)
@@ -1325,6 +1627,23 @@ Module Wiping.
     paper_remaining : nat;          (* squares available *)
   }.
   
+  Definition bristol_efficiency_factor (b : BristolType) : nat :=
+    match b with
+    | Type1_SeparateHardLumps => 4
+    | Type2_LumpySausage => 3
+    | Type3_SausageWithCracks => 3
+    | Type4_SmoothSoftSausage => 2
+    | Type5_SoftBlobsClearEdges => 1
+    | Type6_FluffentPieces => 1
+    | Type7_WateryNoSolids => 1
+    end.
+
+  Definition wipe_efficiency_typed (b : BristolType) (residue : Interval mL) : Interval mL :=
+    let eff := bristol_efficiency_factor b in
+    mkInterval mL
+      (Nat.div (lo mL residue) (S eff))
+      (Nat.div (hi mL residue) (S eff)).
+
   Definition wipe_efficiency (residue : Interval mL) : Interval mL :=
     let efficiency_factor := 2 in
     mkInterval mL
@@ -1521,7 +1840,19 @@ Module Wiping.
     intros initial_residue.
     apply (wipe_iter_converges_aux (hi mL initial_residue) initial_residue eq_refl).
   Defined.
-  
+
+  Lemma typed_wipe_reduces :
+    forall b r,
+    hi mL (wipe_efficiency_typed b r) <= hi mL r.
+  Proof.
+    intros b r.
+    unfold wipe_efficiency_typed.
+    simpl.
+    assert (H: forall n d, Nat.div n (S d) <= n).
+    { intros. apply PeanoNat.Nat.div_le_upper_bound; lia. }
+    apply H.
+  Defined.
+
   (*--------------------------------------------------------------------------*)
   (* 9.4 The Endless Wiping Problem                                           *)
   (*--------------------------------------------------------------------------*)
@@ -1780,6 +2111,43 @@ Module Interventions.
       (bolus_length b)
       (bolus_max_diameter b)
       new_physics.
+
+  Definition apply_laxative_to_state (lax : LaxativeType) (s : SystemState) : SystemState :=
+    match bolus s with
+    | None => s
+    | Some b =>
+        mkState
+          (anatomy s) (Some (laxative_effect lax b)) (bolus_position s)
+          (posture s) (reflex_state s) (voluntary_commands s)
+          (ias_pressure s) (eas_pressure s) (anorectal_angle s)
+          (elapsed_time s) (eas_fatigue_accumulated s)
+    end.
+
+  Lemma osmotic_reduces_viscosity :
+    forall b,
+    hi cP (bp_viscosity (bolus_physics (laxative_effect OsmoticLaxative b))) <=
+    hi cP (bp_viscosity (bolus_physics b)).
+  Proof.
+    intros b.
+    unfold laxative_effect.
+    simpl.
+    assert (H: forall n d, Nat.div n (S d) <= n).
+    { intros. apply PeanoNat.Nat.div_le_upper_bound; lia. }
+    apply H.
+  Defined.
+
+  Lemma stool_softener_reduces_yield_stress :
+    forall b,
+    hi Pa (bp_yield_stress (bolus_physics (laxative_effect StoolSoftener b))) <=
+    hi Pa (bp_yield_stress (bolus_physics b)).
+  Proof.
+    intros b.
+    unfold laxative_effect.
+    simpl.
+    assert (H: forall n d, Nat.div n (S d) <= n).
+    { intros. apply PeanoNat.Nat.div_le_upper_bound; lia. }
+    apply H.
+  Defined.
   
   (*--------------------------------------------------------------------------*)
   (* 11.2 Manual Disimpaction                                                 *)
@@ -1918,8 +2286,7 @@ Module Safety.
     intros anat pg.
     unfold compute_expulsive, max_safe_pressure, safe_expulsive_bound, Pa_le.
     simpl.
-    unfold Pa.
-    apply le_n.
+    apply PeanoNat.Nat.le_min_r.
   Defined.
 
   Theorem no_dangerous_straining :
@@ -1991,7 +2358,7 @@ Module Safety.
     cmd_eas_relax (voluntary_commands s1) = true.
   Proof.
     intros s1 s2 Hstep Hinit.
-    destruct Hstep as [s Hg | s Hg | s Hg | s Hg | s Hg | s Hg | s Hg];
+    destruct Hstep as [s Hg | s Hg | s Hg | s Hg | s Hg | s Hg | s Hg | s Hg];
       simpl in Hinit; try discriminate.
     unfold guard_initiate in Hg.
     destruct Hg as [_ [Heas _]].
@@ -2002,14 +2369,17 @@ Module Safety.
     forall s1 s2,
     Step s1 s2 ->
     reflex_state s2 = ExpulsionPhase ->
-    reflex_state s1 = InitiationPhase.
+    reflex_state s1 = InitiationPhase \/ reflex_state s1 = ExpulsionPhase.
   Proof.
     intros s1 s2 Hstep Hexp.
-    destruct Hstep as [s Hg | s Hg | s Hg | s Hg | s Hg | s Hg | s Hg];
+    destruct Hstep as [s Hg | s Hg | s Hg | s Hg | s Hg | s Hg | s Hg | s Hg];
       simpl in Hexp; try discriminate.
-    unfold guard_expulsion_start in Hg.
-    destruct Hg as [Hinit _].
-    exact Hinit.
+    - unfold guard_expulsion_start in Hg.
+      destruct Hg as [Hinit _].
+      left. exact Hinit.
+    - unfold guard_expulsion_tick in Hg.
+      destruct Hg as [Hexp_state _].
+      right. exact Hexp_state.
   Defined.
 
 End Safety.
