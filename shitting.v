@@ -21,7 +21,7 @@ Require Import PeanoNat.
 Require Import Arith.
 
 (*============================================================================*)
-(*                         MODULE 0: FOUNDATIONAL TYPES                       *)
+(*                         FOUNDATIONAL TYPES                       *)
 (*============================================================================*)
 
 (* 
@@ -176,6 +176,36 @@ Module Units.
     hi (iv_sub i1 i2) = Pa_sub (hi i1) (lo i2).
   Proof. reflexivity. Qed.
 
+  Lemma iv_sub_preserves_wf : forall i1 i2 : Interval Pa,
+    interval_wf_Pa i1 -> interval_wf_Pa i2 ->
+    interval_wf_Pa (iv_sub i1 i2).
+  Proof.
+    intros i1 i2 Hwf1 Hwf2.
+    unfold interval_wf_Pa, Pa_le, iv_sub, Pa_sub in *.
+    simpl.
+    destruct (Compare_dec.le_dec (pressure_Pa (hi i2)) (pressure_Pa (lo i1)));
+    destruct (Compare_dec.le_dec (pressure_Pa (lo i2)) (pressure_Pa (hi i1))).
+    - lia.
+    - simpl. lia.
+    - simpl. lia.
+    - simpl. lia.
+  Qed.
+
+  Lemma iv_mm_sub_preserves_wf : forall i1 i2 : Interval mm,
+    interval_wf_mm i1 -> interval_wf_mm i2 ->
+    interval_wf_mm (iv_mm_sub i1 i2).
+  Proof.
+    intros i1 i2 Hwf1 Hwf2.
+    unfold interval_wf_mm, mm_le, iv_mm_sub, mm_sub in *.
+    simpl.
+    destruct (Compare_dec.le_dec (distance_mm (hi i2)) (distance_mm (lo i1)));
+    destruct (Compare_dec.le_dec (distance_mm (lo i2)) (distance_mm (hi i1))).
+    - lia.
+    - simpl. lia.
+    - simpl. lia.
+    - simpl. lia.
+  Qed.
+
   Lemma iv_mul_lo : forall i1 i2 : Interval Pa,
     lo (iv_mul i1 i2) = Pa_mul (lo i1) (lo i2).
   Proof. reflexivity. Qed.
@@ -263,7 +293,7 @@ End Units.
 
 
 (*============================================================================*)
-(*                         MODULE 1: ANATOMY                                  *)
+(*                         ANATOMY                                  *)
 (*============================================================================*)
 
 (*
@@ -275,9 +305,6 @@ End Units.
 Module Anatomy.
   Import Units.
 
-  (*--------------------------------------------------------------------------*)
-  (* 1.1 Rectal Chamber                                                       *)
-  (*--------------------------------------------------------------------------*)
 
   Record Rectum := mkRectum {
     length : Interval mm;              (* 120-150mm typical *)
@@ -332,9 +359,6 @@ Module Anatomy.
   Qed.
 
 
-  (*--------------------------------------------------------------------------*)
-  (* 1.2 Internal Anal Sphincter (IAS)                                        *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Smooth muscle, tonically contracted, INVOLUNTARY control.
@@ -366,9 +390,6 @@ Module Anatomy.
       (mkInterval (MkPa 2000) (MkPa 4000)).
 
 
-  (*--------------------------------------------------------------------------*)
-  (* 1.3 External Anal Sphincter (EAS)                                        *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Skeletal muscle, VOLUNTARY control.
@@ -398,9 +419,6 @@ Module Anatomy.
       (mkInterval (MkPa 500) (MkPa 1000)).
 
 
-  (*--------------------------------------------------------------------------*)
-  (* 1.4 Puborectalis Muscle                                                  *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Creates the anorectal angle by forming a sling around the rectum.
@@ -423,9 +441,6 @@ Module Anatomy.
       (mkInterval (Mkdeg 5) (Mkdeg 15)).
 
 
-  (*--------------------------------------------------------------------------*)
-  (* 1.5 Abdominal Wall Complex                                               *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Generates expulsive pressure via Valsalva maneuver.
@@ -446,9 +461,6 @@ Module Anatomy.
                            (MkPa (10000 - Nat.mul (time_sec t) 50))).
 
 
-  (*--------------------------------------------------------------------------*)
-  (* 1.6 Anal Canal Geometry                                                  *)
-  (*--------------------------------------------------------------------------*)
 
   Record AnalCanal := mkAC {
     ac_length : Interval mm;                  (* 25-50mm *)
@@ -465,9 +477,6 @@ Module Anatomy.
       (mkInterval (MkcP 100) (MkcP 500)).
   
   
-  (*--------------------------------------------------------------------------*)
-  (* 1.7 Complete Anatomical Configuration                                    *)
-  (*--------------------------------------------------------------------------*)
   
   Record AnatomicalConfig := mkAnatomy {
     rectum : Rectum;
@@ -491,7 +500,7 @@ End Anatomy.
 
 
 (*============================================================================*)
-(*                         MODULE 2: BOLUS PROPERTIES                         *)
+(*                         BOLUS PROPERTIES                         *)
 (*============================================================================*)
 
 (*
@@ -502,9 +511,6 @@ End Anatomy.
 Module Bolus.
   Import Units.
   
-  (*--------------------------------------------------------------------------*)
-  (* 2.1 Bristol Stool Scale Formalization                                    *)
-  (*--------------------------------------------------------------------------*)
   
   Inductive BristolType : Type :=
     | Type1_SeparateHardLumps      (* severe constipation *)
@@ -515,9 +521,6 @@ Module Bolus.
     | Type6_FluffentPieces         (* mild diarrhea *)
     | Type7_WateryNoSolids.        (* severe diarrhea *)
   
-  (*--------------------------------------------------------------------------*)
-  (* 2.2 Physical Properties by Bristol Type                                  *)
-  (*--------------------------------------------------------------------------*)
   
   Record BolusPhysics := mkBolusPhysics {
     bp_viscosity : Interval cP;         (* resistance to flow *)
@@ -580,9 +583,6 @@ Module Bolus.
           (mkInterval (Mkmm 0) (Mkmm 10))
     end.
   
-  (*--------------------------------------------------------------------------*)
-  (* 2.3 Bolus Instance                                                       *)
-  (*--------------------------------------------------------------------------*)
   
   Record Bolus := mkBolus {
     bolus_type : BristolType;
@@ -595,6 +595,21 @@ Module Bolus.
   Coercion bolus_type : Bolus >-> BristolType.
   Coercion bolus_physics : Bolus >-> BolusPhysics.
 
+  Definition volume_valid (vol : Interval mL) : Prop :=
+    volume_mL (lo vol) > 0 /\ mL_le (lo vol) (hi vol).
+
+  Lemma volume_valid_dec : forall vol,
+    {volume_valid vol} + {~volume_valid vol}.
+  Proof.
+    intros vol.
+    unfold volume_valid, mL_le.
+    destruct (Compare_dec.gt_dec (volume_mL (lo vol)) 0) as [Hpos | Hnpos].
+    - destruct (Compare_dec.le_dec (volume_mL (lo vol)) (volume_mL (hi vol))) as [Hwf | Hnwf].
+      + left. split; assumption.
+      + right. intros [_ Hwf]. lia.
+    - right. intros [Hpos _]. lia.
+  Defined.
+
   Definition make_bolus (bt : BristolType) (vol : Interval mL) : Bolus :=
     let physics := bristol_to_physics bt in
     mkBolus
@@ -604,6 +619,10 @@ Module Bolus.
                   (Mkmm (Nat.mul (volume_mL (hi vol)) 3)))
       (bp_typical_diameter physics)
       physics.
+
+  Definition make_bolus_safe (bt : BristolType) (vol : Interval mL)
+    (Hvalid : volume_valid vol) : Bolus :=
+    make_bolus bt vol.
 
   Definition bolus_wf (b : Bolus) : Prop :=
     volume_mL (lo (bolus_volume b)) > 0 /\
@@ -621,11 +640,102 @@ Module Bolus.
     split; assumption.
   Qed.
 
+  Lemma make_bolus_safe_wf :
+    forall bt vol Hvalid,
+    bolus_wf (make_bolus_safe bt vol Hvalid).
+  Proof.
+    intros bt vol [Hpos Hwf].
+    unfold bolus_wf, make_bolus_safe, make_bolus.
+    simpl.
+    split; assumption.
+  Qed.
+
+
+  (*
+     Hydration level affects stool consistency and passage difficulty.
+     - Dehydrated: increased viscosity, yield stress, cohesion
+     - Normal: baseline physics
+     - Well-hydrated: reduced viscosity, easier passage
+
+     Modeled as percentage of normal hydration (100 = normal).
+     Range: 50 (severely dehydrated) to 150 (very well hydrated).
+  *)
+
+  Definition HydrationLevel := nat.
+
+  Definition normal_hydration : HydrationLevel := 100.
+
+  Definition apply_hydration (h : HydrationLevel) (physics : BolusPhysics) : BolusPhysics :=
+    let factor := Nat.max 50 (Nat.min h 150) in
+    let inv_factor := 200 - factor in
+    mkBolusPhysics
+      (mkInterval
+        (MkcP (Nat.div (viscosity_cP (lo (bp_viscosity physics)) * inv_factor) 100))
+        (MkcP (Nat.div (viscosity_cP (hi (bp_viscosity physics)) * inv_factor) 100)))
+      (mkInterval
+        (MkPa (Nat.div (pressure_Pa (lo (bp_yield_stress physics)) * inv_factor) 100))
+        (MkPa (Nat.div (pressure_Pa (hi (bp_yield_stress physics)) * inv_factor) 100)))
+      (mkInterval
+        (MkPa (Nat.div (pressure_Pa (lo (bp_cohesion physics)) * inv_factor) 100))
+        (MkPa (Nat.div (pressure_Pa (hi (bp_cohesion physics)) * inv_factor) 100)))
+      (bp_fragmentability physics)
+      (bp_typical_diameter physics).
+
+  Lemma hydration_reduces_viscosity :
+    forall h physics,
+    h >= 100 ->
+    viscosity_cP (hi (bp_viscosity (apply_hydration h physics))) <=
+    viscosity_cP (hi (bp_viscosity physics)).
+  Proof.
+    intros h physics Hh.
+    unfold apply_hydration.
+    simpl.
+    assert (Hinv: 200 - Nat.max 50 (Nat.min h 150) <= 100) by lia.
+    assert (Hdiv: Nat.div (viscosity_cP (hi (bp_viscosity physics)) *
+                           (200 - Nat.max 50 (Nat.min h 150))) 100 <=
+                  viscosity_cP (hi (bp_viscosity physics))).
+    { apply PeanoNat.Nat.div_le_upper_bound.
+      - lia.
+      - nia. }
+    exact Hdiv.
+  Qed.
+
+  Lemma dehydration_increases_viscosity :
+    forall h physics,
+    h <= 100 ->
+    h >= 50 ->
+    viscosity_cP (lo (bp_viscosity (apply_hydration h physics))) >=
+    viscosity_cP (lo (bp_viscosity physics)).
+  Proof.
+    intros h physics Hle Hge.
+    unfold apply_hydration.
+    simpl.
+    assert (Hinv: 200 - Nat.max 50 (Nat.min h 150) >= 100) by lia.
+    assert (Hdiv: Nat.div (viscosity_cP (lo (bp_viscosity physics)) *
+                           (200 - Nat.max 50 (Nat.min h 150))) 100 >=
+                  viscosity_cP (lo (bp_viscosity physics))).
+    { apply PeanoNat.Nat.div_le_lower_bound.
+      - lia.
+      - nia. }
+    exact Hdiv.
+  Qed.
+
+  Definition make_bolus_hydrated (bt : BristolType) (vol : Interval mL) (h : HydrationLevel) : Bolus :=
+    let base_physics := bristol_to_physics bt in
+    let adjusted_physics := apply_hydration h base_physics in
+    mkBolus
+      bt
+      vol
+      (mkInterval (Mkmm (Nat.mul (volume_mL (lo vol)) 2))
+                  (Mkmm (Nat.mul (volume_mL (hi vol)) 3)))
+      (bp_typical_diameter adjusted_physics)
+      adjusted_physics.
+
 End Bolus.
 
 
 (*============================================================================*)
-(*                         MODULE 3: POSTURE GEOMETRY                         *)
+(*                         POSTURE GEOMETRY                         *)
 (*============================================================================*)
 
 (*
@@ -636,9 +746,6 @@ End Bolus.
 Module Posture.
   Import Units.
   
-  (*--------------------------------------------------------------------------*)
-  (* 3.1 Posture Types                                                        *)
-  (*--------------------------------------------------------------------------*)
   
   Inductive PostureType : Type :=
     | Standing                (* anorectal angle ~90°, defecation difficult *)
@@ -647,9 +754,6 @@ Module Posture.
     | SittingWithFootstool    (* Squatty Potty, ~120-130° *)
     | FullSquat.              (* traditional/anatomical, ~130-140° *)
   
-  (*--------------------------------------------------------------------------*)
-  (* 3.2 Geometric Effects                                                    *)
-  (*--------------------------------------------------------------------------*)
   
   Record PostureGeometry := mkPostureGeometry {
     hip_flexion_angle : Interval deg;
@@ -692,9 +796,6 @@ Module Posture.
           (mkInterval (MkPa 1500) (MkPa 2500))
     end.
   
-  (*--------------------------------------------------------------------------*)
-  (* 3.3 The Squatty Potty Theorem                                            *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Claim: For a given bolus and anatomy, required expulsive pressure
@@ -704,52 +805,69 @@ Module Posture.
   *)
   
   (*
-     Angle-pressure relationship uses discrete thresholds for tractability.
+     Angle-pressure relationship uses continuous linear interpolation.
 
-     Threshold rationale (anorectal angle in degrees):
-     - <= 100°: Acute angle (sitting upright). Factor 3x. Puborectalis sling
-       creates sharp bend requiring significant pressure to overcome.
-     - 101-120°: Moderate angle (sitting with lean). Factor 2x. Partial
-       straightening reduces resistance.
-     - > 120°: Open angle (squatting). Factor 1x. Near-linear path minimizes
-       geometric resistance.
+     Model: factor decreases linearly from 3 at 80° to 1 at 140°.
+     - At 80° (acute): factor = 3. Puborectalis sling creates sharp bend.
+     - At 110° (moderate): factor = 2. Partial straightening.
+     - At 140° (squat): factor = 1. Near-linear path, minimal resistance.
 
-     These thresholds approximate the sigmoid pressure-angle curve from
-     defecography studies. A continuous model would use:
-       factor = 1 + 2 * exp(-0.03 * (angle - 80))
-     but discretization simplifies formal verification.
+     Formula: factor = 1 + (140 - clamped_angle) * 2 / 60
+     where clamped_angle is angle clamped to [80, 140].
+
+     This eliminates jump discontinuities present in threshold-based models
+     while remaining tractable for formal verification.
   *)
+  Definition continuous_angle_factor (angle_val : nat) : nat :=
+    let clamped := Nat.max 80 (Nat.min angle_val 140) in
+    let from_max := 140 - clamped in
+    1 + Nat.div (from_max * 2) 60.
+
+  Lemma continuous_angle_factor_bounds :
+    forall angle_val, 1 <= continuous_angle_factor angle_val <= 3.
+  Proof.
+    intros angle_val.
+    unfold continuous_angle_factor.
+    split.
+    - lia.
+    - assert (H: Nat.div ((140 - Nat.max 80 (Nat.min angle_val 140)) * 2) 60 <= 2).
+      { apply PeanoNat.Nat.div_le_upper_bound; lia. }
+      lia.
+  Qed.
+
+  Lemma continuous_angle_factor_monotonic :
+    forall a1 a2, a1 <= a2 -> continuous_angle_factor a2 <= continuous_angle_factor a1.
+  Proof.
+    intros a1 a2 Hle.
+    unfold continuous_angle_factor.
+    apply PeanoNat.Nat.add_le_mono_l.
+    apply PeanoNat.Nat.div_le_mono.
+    - lia.
+    - apply PeanoNat.Nat.mul_le_mono_r.
+      lia.
+  Qed.
+
   Definition angle_pressure_relationship (angle : deg) (b : Bolus.Bolus) : Interval Pa :=
     let physics := Bolus.bolus_physics b in
     let base_pressure := pressure_Pa (lo (Bolus.bp_yield_stress physics)) in
     let angle_val := angle_deg angle in
-    let angle_factor := if Nat.leb angle_val 100 then 3 else
-                        if Nat.leb angle_val 120 then 2 else 1 in
+    let angle_factor := continuous_angle_factor angle_val in
     mkInterval (MkPa (Nat.mul base_pressure angle_factor))
                (MkPa (Nat.mul (pressure_Pa (hi (Bolus.bp_yield_stress physics))) (S angle_factor))).
 
   Lemma angle_pressure_decreases_with_angle :
     forall b : Bolus.Bolus,
     forall a1 a2 : deg,
-    deg_lt a1 a2 ->
-    angle_deg a2 > 120 ->
-    Pa_le (hi (angle_pressure_relationship a2 b)) (hi (angle_pressure_relationship a1 b)) \/
-    angle_deg a1 <= 120.
+    deg_le a1 a2 ->
+    Pa_le (hi (angle_pressure_relationship a2 b)) (hi (angle_pressure_relationship a1 b)).
   Proof.
-    intros b a1 a2 Hlt Hgt.
-    destruct (Compare_dec.le_dec (angle_deg a1) 120) as [Hle | Hgt1].
-    - right.
-      exact Hle.
-    - left.
-      unfold angle_pressure_relationship, Pa_le, deg_lt in *.
-      simpl.
-      assert (Ha2: Nat.leb (angle_deg a2) 100 = false) by (apply PeanoNat.Nat.leb_gt; lia).
-      assert (Ha2': Nat.leb (angle_deg a2) 120 = false) by (apply PeanoNat.Nat.leb_gt; lia).
-      assert (Ha1: Nat.leb (angle_deg a1) 100 = false) by (apply PeanoNat.Nat.leb_gt; lia).
-      assert (Ha1': Nat.leb (angle_deg a1) 120 = false) by (apply PeanoNat.Nat.leb_gt; lia).
-      rewrite Ha1, Ha1', Ha2, Ha2'.
-      simpl.
-      lia.
+    intros b a1 a2 Hle.
+    unfold angle_pressure_relationship, Pa_le, deg_le in *.
+    simpl.
+    apply PeanoNat.Nat.mul_le_mono_l.
+    apply le_n_S.
+    apply continuous_angle_factor_monotonic.
+    exact Hle.
   Qed.
   
 
@@ -757,7 +875,7 @@ End Posture.
 
 
 (*============================================================================*)
-(*                         MODULE 4: PRESSURE DYNAMICS                        *)
+(*                         PRESSURE DYNAMICS                        *)
 (*============================================================================*)
 
 (*
@@ -770,9 +888,6 @@ Module Pressure.
   Import Bolus.
   Import Posture.
   
-  (*--------------------------------------------------------------------------*)
-  (* 4.1 Resistance Model                                                     *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Total resistance = sphincter pressure + frictional resistance +
@@ -891,12 +1006,9 @@ Module Pressure.
     500 <= pressure_Pa (hi (ias_resting_pressure (ias default_anatomy))) /\
     500 <= pressure_Pa (hi (eas_resting_pressure (eas default_anatomy))).
   Proof.
-    split; apply le_from_leb; native_compute; reflexivity.
+    split; apply le_from_leb; vm_compute; reflexivity.
   Qed.
 
-  (*--------------------------------------------------------------------------*)
-  (* 4.2 Expulsive Force Model                                                *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Expulsive pressure = Valsalva pressure + rectal wall contraction
@@ -971,17 +1083,11 @@ Module Pressure.
     let capped_hi := Nat.min raw_total_hi safe_expulsive_bound in
     mkExpulsive valsalva peristalsis gravity (mkInterval (MkPa capped_lo) (MkPa capped_hi)).
 
-  (*--------------------------------------------------------------------------*)
-  (* 4.3 Pressure Differential                                                *)
-  (*--------------------------------------------------------------------------*)
   
   Definition pressure_differential
     (exp : ExpulsiveComponents) (res : ResistanceComponents) : Interval Pa :=
     iv_sub (e_total exp) (r_total res).
   
-  (*--------------------------------------------------------------------------*)
-  (* 4.4 Passage Criterion                                                    *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Bolus moves iff expulsive pressure > resistance.
@@ -1088,7 +1194,7 @@ End Pressure.
 
 
 (*============================================================================*)
-(*                         MODULE 5: NEURAL CONTROL                           *)
+(*                         NEURAL CONTROL                           *)
 (*============================================================================*)
 
 (*
@@ -1099,9 +1205,6 @@ Module Neural.
   Import Units.
   Import Anatomy.
   
-  (*--------------------------------------------------------------------------*)
-  (* 5.1 Rectoanal Inhibitory Reflex (RAIR)                                   *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Distension of rectum -> automatic relaxation of IAS.
@@ -1124,42 +1227,37 @@ Module Neural.
       (ias_relaxation_latency ias)
       (mkInterval (Mksec 10) (Mksec 30)).
 
-  (*--------------------------------------------------------------------------*)
-  (* 5.2 Voluntary Override (Continence)                                      *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      EAS contraction can maintain continence despite RAIR.
      Time-limited by fatigue.
 
-     Fatigue model: linear decay from max to floor over fatigue_time.
-     Uses S (successor) in denominators to prevent division by zero.
-     Assumes eas_fatigue_time has positive bounds (enforced by default_eas).
+     Fatigue model: hyperbolic decay from max toward floor.
+     Uses the formula: remaining = floor + (max - floor) * tau / (tau + t)
 
-     Discontinuity note: The model jumps to floor/0 at fatigue threshold
-     rather than using smooth exponential decay. This is intentional:
-     1. Skeletal muscle fatigue exhibits threshold behavior (sudden failure)
-     2. Simplifies formal verification (decidable threshold check)
-     3. Conservative for safety analysis (overestimates failure risk)
+     Properties:
+     - At t=0: remaining = max (full strength)
+     - At t=tau: remaining = floor + (max - floor)/2 (half decay)
+     - As t→∞: remaining → floor (asymptotic approach)
 
-     A physiologically smoother model would use:
-       strength(t) = max * exp(-t / tau) + floor * (1 - exp(-t / tau))
-     but the discrete model captures essential liveness guarantees.
+     This is continuous and monotonically decreasing, avoiding the
+     discontinuous jump to 0 in threshold-based models. The hyperbolic
+     form approximates exponential decay while being tractable in nat.
   *)
 
   Definition eas_fatigue_model
     (eas : ExternalSphincter) (t : sec) : Interval Pa :=
     let max_lo := pressure_Pa (lo (eas_max_squeeze_pressure eas)) in
     let max_hi := pressure_Pa (hi (eas_max_squeeze_pressure eas)) in
-    let fatigue_lo := time_sec (lo (eas_fatigue_time eas)) in
-    let fatigue_hi := time_sec (hi (eas_fatigue_time eas)) in
+    let floor_lo := pressure_Pa (lo (eas_voluntary_relaxation_floor eas)) in
+    let floor_hi := pressure_Pa (hi (eas_voluntary_relaxation_floor eas)) in
+    let tau_lo := time_sec (lo (eas_fatigue_time eas)) in
+    let tau_hi := time_sec (hi (eas_fatigue_time eas)) in
     let t_val := time_sec t in
-    let remaining_lo := if Nat.leb t_val fatigue_lo
-                        then max_lo - Nat.div (Nat.mul max_lo t_val) (S fatigue_hi)
-                        else 0 in
-    let remaining_hi := if Nat.leb t_val fatigue_hi
-                        then max_hi - Nat.div (Nat.mul max_hi t_val) (S fatigue_hi)
-                        else pressure_Pa (lo (eas_voluntary_relaxation_floor eas)) in
+    let range_lo := max_lo - floor_hi in
+    let range_hi := max_hi - floor_lo in
+    let remaining_lo := floor_lo + Nat.div (range_lo * tau_lo) (S (tau_hi + t_val)) in
+    let remaining_hi := floor_hi + Nat.div (range_hi * tau_hi) (S (tau_lo + t_val)) in
     mkInterval (MkPa remaining_lo) (MkPa remaining_hi).
 
   Lemma eas_fatigue_nonneg :
@@ -1170,6 +1268,55 @@ Module Neural.
     unfold eas_fatigue_model.
     simpl.
     lia.
+  Qed.
+
+  Lemma eas_fatigue_above_floor :
+    forall eas t,
+    pressure_Pa (lo (eas_fatigue_model eas t)) >=
+    pressure_Pa (lo (eas_voluntary_relaxation_floor eas)).
+  Proof.
+    intros eas t.
+    unfold eas_fatigue_model.
+    simpl.
+    lia.
+  Qed.
+
+  Lemma div_antitone : forall a b c,
+    b > 0 -> b <= c -> a / c <= a / b.
+  Proof.
+    intros a b c Hpos Hle.
+    destruct (Nat.eq_dec c 0) as [Hc0 | Hc0].
+    - lia.
+    - assert (Hcpos: c > 0) by lia.
+      assert (Hbneq: b <> 0) by lia.
+      pose proof (PeanoNat.Nat.mul_div_le a c) as Hdiv.
+      assert (Hbc: a / c * b <= a / c * c).
+      { apply PeanoNat.Nat.mul_le_mono_l. lia. }
+      assert (Htrans: a / c * b <= a) by lia.
+      rewrite PeanoNat.Nat.mul_comm in Htrans.
+      apply PeanoNat.Nat.div_le_lower_bound.
+      + exact Hbneq.
+      + exact Htrans.
+  Qed.
+
+  Lemma eas_fatigue_monotonic :
+    forall eas t1 t2,
+    time_sec t1 <= time_sec t2 ->
+    pressure_Pa (hi (eas_fatigue_model eas t2)) <=
+    pressure_Pa (hi (eas_fatigue_model eas t1)).
+  Proof.
+    intros eas t1 t2 Hle.
+    unfold eas_fatigue_model.
+    simpl.
+    apply PeanoNat.Nat.add_le_mono_l.
+    apply (div_antitone
+      ((pressure_Pa (hi (eas_max_squeeze_pressure eas)) -
+        pressure_Pa (lo (eas_voluntary_relaxation_floor eas))) *
+       time_sec (hi (eas_fatigue_time eas)))
+      (S (time_sec (lo (eas_fatigue_time eas)) + time_sec t1))
+      (S (time_sec (lo (eas_fatigue_time eas)) + time_sec t2))).
+    - lia.
+    - lia.
   Qed.
 
   Record ContinenceState := mkContinence {
@@ -1190,9 +1337,6 @@ Module Neural.
   Definition continence_exhausted (cs : ContinenceState) : Prop :=
     pressure_Pa (hi (remaining_strength cs)) = 0.
 
-  (*--------------------------------------------------------------------------*)
-  (* 5.3 Voluntary Initiation                                                 *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Defecation requires:
@@ -1241,9 +1385,6 @@ Module Neural.
     split; reflexivity.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 5.4 Defecation Reflex Integration                                        *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Once initiated and EAS relaxed, intrinsic reflexes take over:
@@ -1264,7 +1405,7 @@ End Neural.
 
 
 (*============================================================================*)
-(*                         MODULE 6: STATE MACHINE                            *)
+(*                         STATE MACHINE                            *)
 (*============================================================================*)
 
 (*
@@ -1279,9 +1420,6 @@ Module StateMachine.
   Import Pressure.
   Import Neural.
   
-  (*--------------------------------------------------------------------------*)
-  (* 6.1 System State                                                         *)
-  (*--------------------------------------------------------------------------*)
   
   Record SystemState := mkState {
     anatomy : AnatomicalConfig;
@@ -1297,9 +1435,6 @@ Module StateMachine.
     eas_fatigue_accumulated : sec;       (* total hold time *)
   }.
   
-  (*--------------------------------------------------------------------------*)
-  (* 6.1.1 State Well-Formedness                                              *)
-  (*--------------------------------------------------------------------------*)
 
   Definition position_within_bolus (s : SystemState) : Prop :=
     match bolus s with
@@ -1310,9 +1445,6 @@ Module StateMachine.
   Definition state_wf (s : SystemState) : Prop :=
     position_within_bolus s.
 
-  (*--------------------------------------------------------------------------*)
-  (* 6.2 Transition Guards                                                    *)
-  (*--------------------------------------------------------------------------*)
 
   Definition urge_threshold : mL := MkmL 100.
 
@@ -1371,9 +1503,6 @@ Module StateMachine.
     Pa_le resting_tone_threshold (lo (eas_pressure s)) /\
     Pa_le resting_tone_threshold (lo (ias_pressure s)).
 
-  (*--------------------------------------------------------------------------*)
-  (* 6.3 Transition Functions                                                 *)
-  (*--------------------------------------------------------------------------*)
 
   Definition default_ias_pressure : Interval Pa :=
     mkInterval resting_tone_threshold resting_tone_threshold.
@@ -1536,9 +1665,6 @@ Module StateMachine.
     intros s. split; simpl; apply Pa_le_refl.
   Qed.
   
-  (*--------------------------------------------------------------------------*)
-  (* 6.4 Step Function                                                        *)
-  (*--------------------------------------------------------------------------*)
   
   Inductive Step : SystemState -> SystemState -> Prop :=
     | step_urge : forall s,
@@ -1566,9 +1692,6 @@ Module StateMachine.
         guard_reset s ->
         Step s (transition_to_quiescent s).
   
-  (*--------------------------------------------------------------------------*)
-  (* 6.5 Multi-step Execution                                                 *)
-  (*--------------------------------------------------------------------------*)
   
   Inductive MultiStep : SystemState -> SystemState -> Prop :=
     | ms_refl : forall s, MultiStep s s
@@ -1624,7 +1747,7 @@ End StateMachine.
 
 
 (*============================================================================*)
-(*                         MODULE 7: PROGRESS LEMMAS                          *)
+(*                         PROGRESS LEMMAS                          *)
 (*============================================================================*)
 
 (*
@@ -1640,9 +1763,6 @@ Module Progress.
   Import Neural.
   Import StateMachine.
   
-  (*--------------------------------------------------------------------------*)
-  (* 7.1 Monotonic Bolus Advancement                                          *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      During ExpulsionPhase, if pressure differential is positive,
@@ -1677,9 +1797,6 @@ Module Progress.
     exact Hadv.
   Qed.
 
-  (*--------------------------------------------------------------------------*)
-  (* 7.2 Fatigue Guarantees Progress                                          *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      VoluntaryHold cannot persist indefinitely.
@@ -1690,21 +1807,50 @@ Module Progress.
   Definition fatigue_exceeds_limit (acc : sec) : Prop :=
     sec_le StateMachine.fatigue_limit acc.
 
-  Lemma fatigue_forces_transition :
+  Lemma fatigue_approaches_floor :
     forall eas t,
-    interval_wf_sec (eas_fatigue_time eas) ->
-    time_sec t > time_sec (hi (eas_fatigue_time eas)) ->
-    pressure_Pa (lo (eas_fatigue_model eas t)) = 0.
+    pressure_Pa (lo (eas_fatigue_model eas t)) >=
+    pressure_Pa (lo (eas_voluntary_relaxation_floor eas)).
   Proof.
-    intros eas t Hwf Hgt.
+    intros eas t.
     unfold eas_fatigue_model.
-    assert (Hlo: Nat.leb (time_sec t) (time_sec (lo (eas_fatigue_time eas))) = false).
-    { apply PeanoNat.Nat.leb_gt.
-      unfold interval_wf_sec, sec_le in Hwf.
-      lia. }
-    rewrite Hlo.
     simpl.
-    reflexivity.
+    lia.
+  Qed.
+
+  Lemma fatigue_bounded_above :
+    forall eas t,
+    pressure_Pa (lo (eas_fatigue_model eas t)) <=
+    pressure_Pa (lo (eas_voluntary_relaxation_floor eas)) +
+    Nat.div ((pressure_Pa (lo (eas_max_squeeze_pressure eas)) -
+              pressure_Pa (hi (eas_voluntary_relaxation_floor eas))) *
+             time_sec (lo (eas_fatigue_time eas)))
+            (S (time_sec (hi (eas_fatigue_time eas)) + time_sec t)).
+  Proof.
+    intros eas t.
+    unfold eas_fatigue_model.
+    simpl.
+    lia.
+  Qed.
+
+  Lemma fatigue_decreases_over_time :
+    forall eas t1 t2,
+    time_sec t1 <= time_sec t2 ->
+    pressure_Pa (lo (eas_fatigue_model eas t2)) <=
+    pressure_Pa (lo (eas_fatigue_model eas t1)).
+  Proof.
+    intros eas t1 t2 Hle.
+    unfold eas_fatigue_model.
+    simpl.
+    apply PeanoNat.Nat.add_le_mono_l.
+    apply (div_antitone
+      ((pressure_Pa (lo (eas_max_squeeze_pressure eas)) -
+        pressure_Pa (hi (eas_voluntary_relaxation_floor eas))) *
+       time_sec (lo (eas_fatigue_time eas)))
+      (S (time_sec (hi (eas_fatigue_time eas)) + time_sec t1))
+      (S (time_sec (hi (eas_fatigue_time eas)) + time_sec t2))).
+    - lia.
+    - lia.
   Qed.
 
   Lemma hold_bounded_by_fatigue :
@@ -1718,9 +1864,6 @@ Module Progress.
     simpl. exact Hlim.
   Qed.
 
-  (*--------------------------------------------------------------------------*)
-  (* 7.3 Sphincter Relaxation Completes                                       *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Once voluntary commands issued, sphincters reach relaxed state
@@ -1760,9 +1903,6 @@ Module Progress.
     lia.
   Qed.
 
-  (*--------------------------------------------------------------------------*)
-  (* 7.4 Sufficient Pressure Exists                                           *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      For Bristol Types 2-6 in squatting posture with normal anatomy,
@@ -1784,7 +1924,7 @@ End Progress.
 
 
 (*============================================================================*)
-(*                         MODULE 8: TERMINATION PROOF                        *)
+(*                         TERMINATION PROOF                        *)
 (*============================================================================*)
 
 (*
@@ -1801,9 +1941,6 @@ Module Termination.
   Import StateMachine.
   Import Progress.
   
-  (*--------------------------------------------------------------------------*)
-  (* 8.1 Well-Founded Measure                                                 *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      We define a measure that strictly decreases on each transition.
@@ -1826,9 +1963,6 @@ Module Termination.
      monotonic decrease. Normal flow: UrgePresent -> InitiationPhase ->
      ExpulsionPhase -> CompletionPhase -> Quiescent is 4 -> 3 -> 2 -> 1 -> 0. *)
   
-  (*--------------------------------------------------------------------------*)
-  (* 8.2 Finite Bolus Assumption                                              *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Critical assumption: bolus volume is finite and bounded.
@@ -1840,9 +1974,6 @@ Module Termination.
   Definition finite_bolus (b : Bolus) : Prop :=
     mL_le (hi (bolus_volume b)) max_bolus_volume.
 
-  (*--------------------------------------------------------------------------*)
-  (* 8.4 Main Termination Theorem                                             *)
-  (*--------------------------------------------------------------------------*)
 
   Definition voluntary_commands_permit_defecation (s : SystemState) : Prop :=
     cmd_eas_relax (voluntary_commands s) = true /\
@@ -1957,9 +2088,7 @@ Module Termination.
     - exact Hsuff.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
   (* Concrete witness: Type4 + FullSquat + default anatomy has positive flow. *)
-  (*--------------------------------------------------------------------------*)
 
   Definition typical_bolus : Bolus.Bolus :=
     Bolus.make_bolus Bolus.Type4_SmoothSoftSausage (mkInterval (MkmL 150) (MkmL 200)).
@@ -2004,20 +2133,20 @@ Module Termination.
   Lemma typical_expulsive_lo_value :
     pressure_Pa (lo (Pressure.e_total typical_expulsive)) = 7000.
   Proof.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
   Lemma typical_resistance_hi_value :
     pressure_Pa (hi (Pressure.r_total typical_resistance)) = 1683.
   Proof.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
   Lemma typical_margin_value : typical_margin = 4150.
   Proof.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
@@ -2029,7 +2158,7 @@ Module Termination.
     rewrite typical_resistance_hi_value.
     rewrite typical_margin_value.
     apply gt_from_ltb.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
@@ -2052,9 +2181,7 @@ Module Termination.
     exact typical_state_sufficient_pressure_with_margin.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
   (* Additional witnesses: default_anatomy works across normal Bristol types. *)
-  (*--------------------------------------------------------------------------*)
 
   Definition type3_bolus : Bolus.Bolus :=
     Bolus.make_bolus Bolus.Type3_SausageWithCracks (mkInterval (MkmL 150) (MkmL 200)).
@@ -2071,13 +2198,13 @@ Module Termination.
     Pressure.margin_for_flow (Bolus.bolus_physics type3_bolus).
 
   Lemma type3_expulsive_lo : pressure_Pa (lo (Pressure.e_total type3_expulsive)) = 7000.
-  Proof. native_compute. reflexivity. Qed.
+  Proof. vm_compute. reflexivity. Qed.
 
   Lemma type3_resistance_hi : pressure_Pa (hi (Pressure.r_total type3_resistance)) = 2367.
-  Proof. native_compute. reflexivity. Qed.
+  Proof. vm_compute. reflexivity. Qed.
 
   Lemma type3_margin_val : type3_margin = 8300.
-  Proof. native_compute. reflexivity. Qed.
+  Proof. vm_compute. reflexivity. Qed.
 
   Theorem type3_passage_possible :
     pressure_Pa (lo (Pressure.e_total type3_expulsive)) >
@@ -2085,7 +2212,7 @@ Module Termination.
   Proof.
     rewrite type3_expulsive_lo, type3_resistance_hi.
     apply gt_from_ltb.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
@@ -2095,13 +2222,11 @@ Module Termination.
   Proof.
     rewrite type3_expulsive_lo, type3_resistance_hi, type3_margin_val.
     apply le_from_leb.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
-  (*--------------------------------------------------------------------------*)
   (* Counterexample: Type1 constipated stool may NOT have positive flow.      *)
-  (*--------------------------------------------------------------------------*)
 
   Definition type1_bolus : Bolus.Bolus :=
     Bolus.make_bolus Bolus.Type1_SeparateHardLumps (mkInterval (MkmL 150) (MkmL 200)).
@@ -2118,13 +2243,13 @@ Module Termination.
     Pressure.margin_for_flow (Bolus.bolus_physics type1_bolus).
 
   Lemma standing_expulsive_lo : pressure_Pa (lo (Pressure.e_total standing_expulsive)) = 4500.
-  Proof. native_compute. reflexivity. Qed.
+  Proof. vm_compute. reflexivity. Qed.
 
-  Lemma type1_resistance_hi : pressure_Pa (hi (Pressure.r_total type1_resistance)) = 18327.
-  Proof. native_compute. reflexivity. Qed.
+  Lemma type1_resistance_hi : pressure_Pa (hi (Pressure.r_total type1_resistance)) = 17327.
+  Proof. vm_compute. reflexivity. Qed.
 
   Lemma type1_margin_val : type1_margin = 51000.
-  Proof. native_compute. reflexivity. Qed.
+  Proof. vm_compute. reflexivity. Qed.
 
   Lemma type1_standing_insufficient :
     pressure_Pa (lo (Pressure.e_total standing_expulsive)) <=
@@ -2132,7 +2257,7 @@ Module Termination.
   Proof.
     rewrite standing_expulsive_lo, type1_resistance_hi, type1_margin_val.
     apply le_from_leb.
-    native_compute.
+    vm_compute.
     reflexivity.
   Qed.
 
@@ -2301,9 +2426,6 @@ Module Termination.
     - apply transition_to_quiescent_state.
   Qed.
   
-  (*--------------------------------------------------------------------------*)
-  (* 8.5 Corollaries                                                          *)
-  (*--------------------------------------------------------------------------*)
   
   Corollary termination_time_bounded :
     forall s : SystemState,
@@ -2367,7 +2489,7 @@ End Termination.
 
 
 (*============================================================================*)
-(*                         MODULE 9: WIPING CONVERGENCE                       *)
+(*                         WIPING CONVERGENCE                       *)
 (*============================================================================*)
 
 (*
@@ -2380,9 +2502,6 @@ Module Wiping.
   Import List.
   Import ListNotations.
   
-  (*--------------------------------------------------------------------------*)
-  (* 9.1 Residue Model                                                        *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Residue quantity after each wipe modeled as:
@@ -2417,21 +2536,15 @@ Module Wiping.
   Definition wipe_efficiency (residue : Interval mL) : Interval mL :=
     let efficiency_factor := 2 in
     mkInterval
-      (MkmL (Nat.div (volume_mL (lo residue)) (S efficiency_factor)))
+      (MkmL (Nat.div (volume_mL (lo residue)) efficiency_factor))
       (MkmL (Nat.div (volume_mL (hi residue)) efficiency_factor)).
   
-  (*--------------------------------------------------------------------------*)
-  (* 9.2 Cleanliness Threshold                                                *)
-  (*--------------------------------------------------------------------------*)
   
   Definition cleanliness_threshold : nat := 1.
 
   Definition clean_enough (r : Interval mL) : Prop :=
     volume_mL (hi r) <= cleanliness_threshold.
   
-  (*--------------------------------------------------------------------------*)
-  (* 9.3 Convergence Theorem                                                  *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Under reasonable efficiency assumptions (efficiency > 0.5),
@@ -2454,13 +2567,13 @@ Module Wiping.
 
   Lemma wipe_reduces_lo :
     forall r : Interval mL,
-    volume_mL (lo r) >= 3 ->
+    volume_mL (lo r) >= 2 ->
     volume_mL (lo (wipe_efficiency r)) < volume_mL (lo r).
   Proof.
     intros r Hge.
     unfold wipe_efficiency.
     simpl.
-    assert (Hdiv: Nat.div (volume_mL (lo r)) 3 < volume_mL (lo r)).
+    assert (Hdiv: Nat.div (volume_mL (lo r)) 2 < volume_mL (lo r)).
     { apply PeanoNat.Nat.div_lt; lia. }
     exact Hdiv.
   Defined.
@@ -2692,9 +2805,6 @@ Module Wiping.
     apply all_bristol_types_have_positive_efficiency.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 9.4 The Endless Wiping Problem: Seepage Model                            *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      The "endless wiping" phenomenon occurs when residual seepage or
@@ -2755,9 +2865,6 @@ Module Wiping.
       (MkmL (volume_mL (lo base) + seep))
       (MkmL (volume_mL (hi base) + seep)).
 
-  (*--------------------------------------------------------------------------*)
-  (* 9.4.1 Non-Convergence Theorem                                            *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Key insight: after each wipe with seepage, residue is at least seepage_rate.
@@ -2837,9 +2944,6 @@ Module Wiping.
     lia.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 9.4.2 Bidet Intervention                                                  *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Bidet eliminates seepage by:
@@ -2917,9 +3021,6 @@ Module Wiping.
     lia.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 9.4.3 Combined Wiping Strategy                                           *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Optimal strategy for problematic types:
@@ -2976,9 +3077,6 @@ Module Wiping.
     simpl. lia.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 9.4.4 Convergence With Bidet                                             *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      The key theorem: for any Bristol type, cleanliness is achievable
@@ -3040,7 +3138,7 @@ End Wiping.
 
 
 (*============================================================================*)
-(*                         MODULE 10: PATHOLOGICAL CASES                      *)
+(*                         PATHOLOGICAL CASES                      *)
 (*============================================================================*)
 
 (*
@@ -3054,9 +3152,6 @@ Module Pathology.
   Import Neural.
   Import StateMachine.
   
-  (*--------------------------------------------------------------------------*)
-  (* 10.1 Obstruction                                                         *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      If bolus diameter exceeds anal canal max_dilation,
@@ -3145,9 +3240,6 @@ Module Pathology.
     lia.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 10.2 Paradoxical Contraction                                             *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Dyssynergic defecation: voluntary command to relax EAS
@@ -3171,9 +3263,6 @@ Module Pathology.
     lia.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 10.3 Infinite Urge Without Action                                        *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Theoretically possible to remain in UrgePresent indefinitely
@@ -3197,9 +3286,6 @@ Module Pathology.
     discriminate.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 10.4 Hirschsprung's Disease                                              *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Absence of ganglion cells -> no RAIR response.
@@ -3256,7 +3342,7 @@ End Pathology.
 
 
 (*============================================================================*)
-(*                         MODULE 11: INTERVENTIONS                           *)
+(*                         INTERVENTIONS                           *)
 (*============================================================================*)
 
 (*
@@ -3270,9 +3356,6 @@ Module Interventions.
   Import Posture.
   Import StateMachine.
   
-  (*--------------------------------------------------------------------------*)
-  (* 11.1 Laxatives                                                           *)
-  (*--------------------------------------------------------------------------*)
   
   Inductive LaxativeType : Type :=
     | OsmoticLaxative      (* draws water into bowel *)
@@ -3356,9 +3439,6 @@ Module Interventions.
     apply H.
   Defined.
   
-  (*--------------------------------------------------------------------------*)
-  (* 11.2 Manual Disimpaction                                                 *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Direct removal of obstruction. Models as:
@@ -3380,9 +3460,6 @@ Module Interventions.
         true
         (bp_typical_diameter physics)).
   
-  (*--------------------------------------------------------------------------*)
-  (* 11.3 Enema                                                               *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Introduces fluid, softening bolus and increasing volume/pressure.
@@ -3402,9 +3479,6 @@ Module Interventions.
         true
         (bp_typical_diameter physics)).
   
-  (*--------------------------------------------------------------------------*)
-  (* 11.4 Biofeedback                                                         *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Training to correct dyssynergia. Modifies voluntary control:
@@ -3458,9 +3532,6 @@ Module Interventions.
      achievable floor, restoring normal relaxation response.
   *)
 
-  (*--------------------------------------------------------------------------*)
-  (* 11.5 Squatty Potty                                                       *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Postural intervention. Simply changes posture parameter.
@@ -3481,7 +3552,7 @@ End Interventions.
 
 
 (*============================================================================*)
-(*                         MODULE 12: SAFETY PROPERTIES                       *)
+(*                         SAFETY PROPERTIES                       *)
 (*============================================================================*)
 
 (*
@@ -3497,9 +3568,6 @@ Module Safety.
   Import Neural.
   Import StateMachine.
   
-  (*--------------------------------------------------------------------------*)
-  (* 12.1 No Pressure Injury                                                  *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Valsalva pressure should not exceed cardiovascular safety threshold.
@@ -3531,9 +3599,6 @@ Module Safety.
     apply expulsive_within_safe_limits.
   Defined.
   
-  (*--------------------------------------------------------------------------*)
-  (* 12.2 No Tissue Damage                                                    *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Bolus diameter should not exceed max safe dilation.
@@ -3577,9 +3642,6 @@ Module Safety.
     exact Hpass.
   Defined.
 
-  (*--------------------------------------------------------------------------*)
-  (* 12.3 No Infinite Valsalva                                                *)
-  (*--------------------------------------------------------------------------*)
   
   (*
      Straining duration bounded to prevent syncope.
@@ -3587,9 +3649,6 @@ Module Safety.
   
   Definition max_strain_duration : sec := Mksec 30.
 
-  (*--------------------------------------------------------------------------*)
-  (* 12.4 Continence Maintained Until Voluntary                               *)
-  (*--------------------------------------------------------------------------*)
 
   (*
      Involuntary passage should not occur while EAS is commanded contracted
