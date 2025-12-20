@@ -2341,6 +2341,14 @@ Module Termination.
       discriminate.
   Defined.
 
+  Lemma typical_state_expulsion_has_flow :
+    reflex_state typical_state = ExpulsionPhase ->
+    has_positive_flow typical_state.
+  Proof.
+    intros _.
+    exact typical_state_has_positive_flow.
+  Defined.
+
   (* Dual: If commands don't permit defecation, initiation guard fails. *)
   Corollary retention_blocks_initiation :
     forall s : SystemState,
@@ -3118,7 +3126,25 @@ Module Pathology.
     unfold passage_geometrically_possible.
     lia.
   Defined.
-  
+
+  Lemma typical_bolus_not_obstructed :
+    passage_geometrically_possible Anatomy.default_anatomy Termination.typical_bolus.
+  Proof.
+    unfold passage_geometrically_possible.
+    unfold Termination.typical_bolus, Bolus.make_bolus.
+    simpl.
+    lia.
+  Defined.
+
+  Lemma type3_bolus_not_obstructed :
+    passage_geometrically_possible Anatomy.default_anatomy Termination.type3_bolus.
+  Proof.
+    unfold passage_geometrically_possible.
+    unfold Termination.type3_bolus, Bolus.make_bolus.
+    simpl.
+    lia.
+  Defined.
+
   (*--------------------------------------------------------------------------*)
   (* 10.2 Paradoxical Contraction                                             *)
   (*--------------------------------------------------------------------------*)
@@ -3204,6 +3230,26 @@ Module Pathology.
     unfold compute_rair.
     simpl.
     exact Hhi.
+  Defined.
+
+  (*
+     Hirschsprung non-termination: without RAIR, IAS cannot relax below
+     the threshold required for guard_expulsion_start. If IAS resting
+     pressure exceeds relaxation_threshold and RAIR magnitude is 0,
+     expulsion phase can never begin.
+  *)
+
+  Lemma hirschsprung_blocks_expulsion :
+    forall s,
+    hirschsprung (ias (anatomy s)) ->
+    pressure_Pa (hi (ias_pressure s)) > pressure_Pa relaxation_threshold ->
+    ~guard_expulsion_start s.
+  Proof.
+    intros s Hhirsch Hhigh Hguard.
+    unfold guard_expulsion_start in Hguard.
+    destruct Hguard as [Hinit [Heas [Hias _]]].
+    unfold Pa_le in Hias.
+    lia.
   Defined.
 
 End Pathology.
