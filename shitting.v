@@ -731,6 +731,137 @@ Module Bolus.
       (bp_typical_diameter adjusted_physics)
       adjusted_physics.
 
+
+  (*
+     PROVENANCE: Boluses do not appear ex nihilo.
+
+     We abstract the entire gastrointestinal process (stomach → small intestine
+     → colon → rectum) into a single digest function. This is minimal but
+     rigorous: we require proof that any bolus in the system derives from
+     ingested material.
+
+     Key invariant: volume_out <= volume_in * absorption_factor
+     (Most ingested volume is absorbed; only residue forms stool.)
+  *)
+
+  Record Meal := mkMeal {
+    meal_volume : Interval mL;
+    meal_fiber_content : nat;
+    meal_fat_content : nat;
+  }.
+
+  Definition meal_wf (m : Meal) : Prop :=
+    volume_mL (lo (meal_volume m)) > 0 /\
+    mL_le (lo (meal_volume m)) (hi (meal_volume m)).
+
+  Lemma meal_wf_dec : forall m,
+    {meal_wf m} + {~meal_wf m}.
+  Proof.
+    intros m.
+    unfold meal_wf, mL_le.
+    destruct (Compare_dec.gt_dec (volume_mL (lo (meal_volume m))) 0).
+    - destruct (Compare_dec.le_dec (volume_mL (lo (meal_volume m)))
+                                    (volume_mL (hi (meal_volume m)))).
+      + left. split; assumption.
+      + right. intros [_ H]. lia.
+    - right. intros [H _]. lia.
+  Defined.
+
+  Definition absorption_factor : nat := 10.
+
+  Definition fiber_to_bristol (fiber : nat) : BristolType :=
+    if Nat.leb 30 fiber then Type4_SmoothSoftSausage
+    else if Nat.leb 20 fiber then Type3_SausageWithCracks
+    else if Nat.leb 10 fiber then Type2_LumpySausage
+    else Type1_SeparateHardLumps.
+
+  Definition digest (m : Meal) (h : HydrationLevel) : Bolus :=
+    let output_vol_lo := Nat.div (volume_mL (lo (meal_volume m))) absorption_factor in
+    let output_vol_hi := Nat.div (volume_mL (hi (meal_volume m))) absorption_factor in
+    let safe_lo := Nat.max 1 output_vol_lo in
+    let bt := fiber_to_bristol (meal_fiber_content m) in
+    make_bolus_hydrated bt (mkInterval (MkmL safe_lo) (MkmL (Nat.max safe_lo output_vol_hi))) h.
+
+  Lemma max_1_gt_0 : forall n, Nat.max 1 n > 0.
+  Proof.
+    intros n.
+    destruct (Nat.max_spec 1 n) as [[_ Heq] | [_ Heq]]; rewrite Heq; lia.
+  Qed.
+
+  Lemma max_le_max : forall a b c, a <= c -> b <= c -> Nat.max a b <= c.
+  Proof.
+    intros a b c Ha Hb.
+    destruct (Nat.max_spec a b) as [[_ Heq] | [_ Heq]]; rewrite Heq; lia.
+  Qed.
+
+  Lemma digest_produces_wf_bolus :
+    forall m h,
+    meal_wf m ->
+    bolus_wf (digest m h).
+  Proof.
+    intros m h [Hpos Hwf].
+    unfold bolus_wf, digest, make_bolus_hydrated, absorption_factor.
+    simpl.
+    split.
+    - apply max_1_gt_0.
+    - unfold mL_le. simpl.
+      apply Nat.le_max_l.
+  Qed.
+
+  Record BolusWithProvenance := mkBolusP {
+    the_bolus : Bolus;
+    source_meal : Meal;
+    source_hydration : HydrationLevel;
+    provenance_valid : the_bolus = digest source_meal source_hydration;
+  }.
+
+  Coercion the_bolus : BolusWithProvenance >-> Bolus.
+
+  Definition make_bolus_with_provenance (m : Meal) (h : HydrationLevel)
+    : BolusWithProvenance :=
+    mkBolusP (digest m h) m h eq_refl.
+
+  Lemma provenance_implies_wf :
+    forall bp : BolusWithProvenance,
+    meal_wf (source_meal bp) ->
+    bolus_wf (the_bolus bp).
+  Proof.
+    intros bp Hmeal.
+    rewrite (provenance_valid bp).
+    apply digest_produces_wf_bolus.
+    exact Hmeal.
+  Qed.
+
+  Lemma no_bolus_ex_nihilo :
+    forall bp : BolusWithProvenance,
+    exists m h, the_bolus bp = digest m h.
+  Proof.
+    intros bp.
+    exists (source_meal bp).
+    exists (source_hydration bp).
+    exact (provenance_valid bp).
+  Qed.
+
+  Definition typical_meal : Meal :=
+    mkMeal (mkInterval (MkmL 500) (MkmL 800)) 25 30.
+
+  Lemma typical_meal_wf : meal_wf typical_meal.
+  Proof.
+    unfold meal_wf, typical_meal, mL_le.
+    simpl.
+    lia.
+  Qed.
+
+  Definition typical_bolus_with_provenance : BolusWithProvenance :=
+    make_bolus_with_provenance typical_meal normal_hydration.
+
+  Lemma typical_bolus_provenance_wf :
+    bolus_wf (the_bolus typical_bolus_with_provenance).
+  Proof.
+    apply provenance_implies_wf.
+    exact typical_meal_wf.
+  Qed.
+
 End Bolus.
 
 
