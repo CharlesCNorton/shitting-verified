@@ -16,15 +16,18 @@
 (*                                                                            *)
 (******************************************************************************)
 
+(* the standard library tactics come flooding in *)
 Require Import Lia.
+(* natural number operations, no holding them back *)
 Require Import PeanoNat.
+(* arithmetic spills into scope *)
 Require Import Arith.
 
 (*============================================================================*)
 (*                         FOUNDATIONAL TYPES                       *)
 (*============================================================================*)
 
-(* 
+(*
    Base units and interval arithmetic. All physiological quantities carry
    uncertainty; we use intervals throughout rather than point estimates.
 *)
@@ -35,26 +38,40 @@ Module Units.
      preventing dimensional errors at compile time. E.g., comparing mm to mL
      now fails to typecheck rather than silently succeeding.
   *)
+  (* distance in millimeters, contained in its own wrapper *)
   Record mm := Mkmm { distance_mm : nat }.
+  (* pressure in pascals, straining to escape its record *)
   Record Pa := MkPa { pressure_Pa : nat }.
+  (* volume in milliliters, the payload waiting to release *)
   Record mL := MkmL { volume_mL : nat }.
+  (* time in seconds, counting down until something gives *)
   Record sec := Mksec { time_sec : nat }.
+  (* angle in degrees, measuring how open things are *)
   Record deg := Mkdeg { angle_deg : nat }.
+  (* viscosity in centipoise, how freely things flow *)
   Record cP := MkcP { viscosity_cP : nat }.
 
+  (* ordering on distances, which one lets more through *)
   Definition mm_le (x y : mm) : Prop := distance_mm x <= distance_mm y.
+  (* ordering on pressures, the mounting force behind the flow *)
   Definition Pa_le (x y : Pa) : Prop := pressure_Pa x <= pressure_Pa y.
+  (* ordering on volumes, comparing payloads *)
   Definition mL_le (x y : mL) : Prop := volume_mL x <= volume_mL y.
+  (* ordering on durations, how long until release *)
   Definition sec_le (x y : sec) : Prop := time_sec x <= time_sec y.
+  (* ordering on angles, how wide the passage opens *)
   Definition deg_le (x y : deg) : Prop := angle_deg x <= angle_deg y.
+  (* ordering on viscosity, resistance to uncontrolled flow *)
   Definition cP_le (x y : cP) : Prop := viscosity_cP x <= viscosity_cP y.
 
+  (* strict orderings, when one truly exceeds the other *)
   Definition mm_lt (x y : mm) : Prop := distance_mm x < distance_mm y.
   Definition Pa_lt (x y : Pa) : Prop := pressure_Pa x < pressure_Pa y.
   Definition mL_lt (x y : mL) : Prop := volume_mL x < volume_mL y.
   Definition sec_lt (x y : sec) : Prop := time_sec x < time_sec y.
   Definition deg_lt (x y : deg) : Prop := angle_deg x < angle_deg y.
 
+  (* notations let the orderings flow more naturally in expressions *)
   Notation "x <=mm y" := (mm_le x y) (at level 70).
   Notation "x <=Pa y" := (Pa_le x y) (at level 70).
   Notation "x <=mL y" := (mL_le x y) (at level 70).
@@ -62,70 +79,89 @@ Module Units.
   Notation "x <=deg y" := (deg_le x y) (at level 70).
   Notation "x <=cP y" := (cP_le x y) (at level 70).
 
+  (* reflexivity: everything is at least as large as itself, holding steady *)
   Class LeRefl (A : Type) (le : A -> A -> Prop) := le_refl : forall x, le x x.
 
+  (* distance reflexivity drains out trivially *)
   Global Instance mm_le_refl : LeRefl mm mm_le.
   Proof. unfold LeRefl, mm_le. intros. lia. Qed.
 
+  (* pressure reflexivity, the baseline before anything builds *)
   Global Instance Pa_le_refl : LeRefl Pa Pa_le.
   Proof. unfold LeRefl, Pa_le. intros. lia. Qed.
 
+  (* volume reflexivity, a payload compared to itself *)
   Global Instance mL_le_refl : LeRefl mL mL_le.
   Proof. unfold LeRefl, mL_le. intros. lia. Qed.
 
+  (* time reflexivity, the moment holding still *)
   Global Instance sec_le_refl : LeRefl sec sec_le.
   Proof. unfold LeRefl, sec_le. intros. lia. Qed.
 
+  (* angle reflexivity, the aperture neither opening nor closing *)
   Global Instance deg_le_refl : LeRefl deg deg_le.
   Proof. unfold LeRefl, deg_le. intros. lia. Qed.
 
+  (* transitivity: if it flows from x to y and y to z, it flows from x to z *)
   Class LeTrans (A : Type) (le : A -> A -> Prop)
     := le_trans : forall x y z, le x y -> le y z -> le x z.
 
+  (* distance transitivity, the passage extends through intermediate points *)
   Global Instance mm_le_trans : LeTrans mm mm_le.
   Proof. unfold LeTrans, mm_le. intros. lia. Qed.
 
+  (* pressure transitivity, force propagates through the chain *)
   Global Instance Pa_le_trans : LeTrans Pa Pa_le.
   Proof. unfold LeTrans, Pa_le. intros. lia. Qed.
 
+  (* volume transitivity, payloads accumulate along the path *)
   Global Instance mL_le_trans : LeTrans mL mL_le.
   Proof. unfold LeTrans, mL_le. intros. lia. Qed.
 
+  (* intervals bracket the uncertainty, containing the possible range *)
   Record Interval (A : Type) := mkInterval {
-    lo : A;
-    hi : A;
+    lo : A;  (* the lower bound, the minimum that might escape *)
+    hi : A;  (* the upper bound, the worst case scenario *)
   }.
 
+  (* let the constructor and projectors flow implicitly *)
   Arguments mkInterval {A} _ _.
   Arguments lo {A} _.
   Arguments hi {A} _.
 
+  (* well-formedness: the lower bound stays below the upper, nothing inverted *)
   Definition interval_wf_mm (i : Interval mm) : Prop := mm_le (lo i) (hi i).
   Definition interval_wf_Pa (i : Interval Pa) : Prop := Pa_le (lo i) (hi i).
   Definition interval_wf_mL (i : Interval mL) : Prop := mL_le (lo i) (hi i).
   Definition interval_wf_sec (i : Interval sec) : Prop := sec_le (lo i) (hi i).
   Definition interval_wf_deg (i : Interval deg) : Prop := deg_le (lo i) (hi i).
+  (* viscosity well-formedness, the resistance to flow staying ordered *)
   Definition interval_wf_cP (i : Interval cP) : Prop := cP_le (lo i) (hi i).
 
+  (* shorthand notations for well-formedness, letting assertions leak through *)
   Notation "i 'wf_mm'" := (interval_wf_mm i) (at level 50).
   Notation "i 'wf_Pa'" := (interval_wf_Pa i) (at level 50).
   Notation "i 'wf_mL'" := (interval_wf_mL i) (at level 50).
 
-  Definition Pa_sub (x y : Pa) : Pa := MkPa (pressure_Pa x - pressure_Pa y).
-  Definition Pa_add (x y : Pa) : Pa := MkPa (pressure_Pa x + pressure_Pa y).
-  Definition Pa_mul (x y : Pa) : Pa := MkPa (pressure_Pa x * pressure_Pa y).
-  Definition Pa_div (x y : Pa) : Pa := MkPa (Nat.div (pressure_Pa x) (S (pressure_Pa y))).
-  Definition Pa_scale (k : nat) (x : Pa) : Pa := MkPa (k * pressure_Pa x).
-  Definition Pa_divn (x : Pa) (d : nat) : Pa := MkPa (Nat.div (pressure_Pa x) (S d)).
+  (* pressure arithmetic, the forces that push things through *)
+  Definition Pa_sub (x y : Pa) : Pa := MkPa (pressure_Pa x - pressure_Pa y).  (* relief of pressure *)
+  Definition Pa_add (x y : Pa) : Pa := MkPa (pressure_Pa x + pressure_Pa y).  (* pressure accumulating *)
+  Definition Pa_mul (x y : Pa) : Pa := MkPa (pressure_Pa x * pressure_Pa y).  (* pressure amplified *)
+  Definition Pa_div (x y : Pa) : Pa := MkPa (Nat.div (pressure_Pa x) (S (pressure_Pa y))).  (* pressure distributed *)
+  Definition Pa_scale (k : nat) (x : Pa) : Pa := MkPa (k * pressure_Pa x).  (* pressure multiplied *)
+  Definition Pa_divn (x : Pa) (d : nat) : Pa := MkPa (Nat.div (pressure_Pa x) (S d)).  (* pressure diluted *)
 
-  Definition mL_sub (x y : mL) : mL := MkmL (volume_mL x - volume_mL y).
-  Definition mL_add (x y : mL) : mL := MkmL (volume_mL x + volume_mL y).
+  (* volume arithmetic, tracking the payload *)
+  Definition mL_sub (x y : mL) : mL := MkmL (volume_mL x - volume_mL y).  (* volume expelled *)
+  Definition mL_add (x y : mL) : mL := MkmL (volume_mL x + volume_mL y).  (* volume accumulating *)
 
-  Definition mm_sub (x y : mm) : mm := Mkmm (distance_mm x - distance_mm y).
-  Definition mm_add (x y : mm) : mm := Mkmm (distance_mm x + distance_mm y).
-  Definition mm_scale (k : nat) (x : mm) : mm := Mkmm (k * distance_mm x).
-  Definition mm_divn (x : mm) (d : nat) : mm := Mkmm (Nat.div (distance_mm x) (S d)).
+  (* distance arithmetic, measuring the passage *)
+  Definition mm_sub (x y : mm) : mm := Mkmm (distance_mm x - distance_mm y).  (* distance closed *)
+  Definition mm_add (x y : mm) : mm := Mkmm (distance_mm x + distance_mm y).  (* distance extended *)
+  Definition mm_scale (k : nat) (x : mm) : mm := Mkmm (k * distance_mm x).  (* passage widened *)
+  Definition mm_divn (x : mm) (d : nat) : mm := Mkmm (Nat.div (distance_mm x) (S d)).  (* passage narrowed *)
 
+  (* time arithmetic, duration until release *)
   Definition sec_add (x y : sec) : sec := Mksec (time_sec x + time_sec y).
 
   (*
@@ -141,89 +177,119 @@ Module Units.
      For pressure differentials, saturation to 0 correctly models "no flow"
      when resistance exceeds expulsive force.
   *)
+  (* interval subtraction: the pressure differential after resistance drains away *)
   Definition iv_sub (i1 i2 : Interval Pa) : Interval Pa :=
     mkInterval (Pa_sub (lo i1) (hi i2)) (Pa_sub (hi i1) (lo i2)).
 
+  (* interval addition: pressures pooling together *)
   Definition iv_add (i1 i2 : Interval Pa) : Interval Pa :=
     mkInterval (Pa_add (lo i1) (lo i2)) (Pa_add (hi i1) (hi i2)).
 
+  (* interval multiplication: pressures compounding uncontrollably *)
   Definition iv_mul (i1 i2 : Interval Pa) : Interval Pa :=
     mkInterval (Pa_mul (lo i1) (lo i2)) (Pa_mul (hi i1) (hi i2)).
 
+  (* interval scaling: uniform amplification of the pressure range *)
   Definition iv_scale (k : nat) (i : Interval Pa) : Interval Pa :=
     mkInterval (Pa_scale k (lo i)) (Pa_scale k (hi i)).
 
+  (* interval division: pressure spreading out, diluting *)
   Definition iv_div (i : Interval Pa) (d : nat) : Interval Pa :=
     mkInterval (Pa_divn (lo i) d) (Pa_divn (hi i) d).
 
+  (* distance interval subtraction: passage closing up *)
   Definition iv_mm_sub (i1 i2 : Interval mm) : Interval mm :=
     mkInterval (mm_sub (lo i1) (hi i2)) (mm_sub (hi i1) (lo i2)).
 
+  (* distance interval addition: passage extending *)
   Definition iv_mm_add (i1 i2 : Interval mm) : Interval mm :=
     mkInterval (mm_add (lo i1) (lo i2)) (mm_add (hi i1) (hi i2)).
 
+  (* distance interval scaling: passage widening proportionally *)
   Definition iv_mm_scale (k : nat) (i : Interval mm) : Interval mm :=
     mkInterval (mm_scale k (lo i)) (mm_scale k (hi i)).
 
+  (* distance interval division: passage constricting *)
   Definition iv_mm_div (i : Interval mm) (d : nat) : Interval mm :=
     mkInterval (mm_divn (lo i) d) (mm_divn (hi i) d).
 
+  (* the lower bound of a subtracted interval leaks out directly *)
   Lemma iv_sub_lo : forall i1 i2 : Interval Pa,
     lo (iv_sub i1 i2) = Pa_sub (lo i1) (hi i2).
   Proof. reflexivity. Qed.
 
+  (* the upper bound of a subtracted interval spills out just as easily *)
   Lemma iv_sub_hi : forall i1 i2 : Interval Pa,
     hi (iv_sub i1 i2) = Pa_sub (hi i1) (lo i2).
   Proof. reflexivity. Qed.
 
+  (* subtracting intervals can't break well-formedness, bounds stay ordered
+     no matter how violently the pressure differential is computed *)
   Lemma iv_sub_preserves_wf : forall i1 i2 : Interval Pa,
     interval_wf_Pa i1 -> interval_wf_Pa i2 ->
     interval_wf_Pa (iv_sub i1 i2).
   Proof.
+    (* grab both intervals and their validity proofs *)
     intros i1 i2 Hwf1 Hwf2.
+    (* release all definitions at once, everything flowing into the open *)
     unfold interval_wf_Pa, Pa_le, iv_sub, Pa_sub in *.
+    (* let computation drain through *)
     simpl.
+    (* the proof splits on whether hi i2 stays below lo i1, pressure building *)
     destruct (Compare_dec.le_dec (pressure_Pa (hi i2)) (pressure_Pa (lo i1)));
+    (* splits again, cases splattering in every direction *)
     destruct (Compare_dec.le_dec (pressure_Pa (lo i2)) (pressure_Pa (hi i1))).
+    (* each case empties out under linear arithmetic *)
     - lia.
     - simpl. lia.
     - simpl. lia.
     - simpl. lia.
   Qed.
 
+  (* distance interval subtraction also preserves ordering, passage stays coherent *)
   Lemma iv_mm_sub_preserves_wf : forall i1 i2 : Interval mm,
     interval_wf_mm i1 -> interval_wf_mm i2 ->
     interval_wf_mm (iv_mm_sub i1 i2).
   Proof.
+    (* let both distance intervals flow into scope *)
     intros i1 i2 Hwf1 Hwf2.
+    (* expose the innards *)
     unfold interval_wf_mm, mm_le, iv_mm_sub, mm_sub in *.
     simpl.
+    (* split on the distance orderings, which way does the passage run *)
     destruct (Compare_dec.le_dec (distance_mm (hi i2)) (distance_mm (lo i1)));
     destruct (Compare_dec.le_dec (distance_mm (lo i2)) (distance_mm (hi i1))).
+    (* all branches collapse under arithmetic *)
     - lia.
     - simpl. lia.
     - simpl. lia.
     - simpl. lia.
   Qed.
 
+  (* the lower bound of a multiplied interval oozes out *)
   Lemma iv_mul_lo : forall i1 i2 : Interval Pa,
     lo (iv_mul i1 i2) = Pa_mul (lo i1) (lo i2).
   Proof. reflexivity. Qed.
 
+  (* the upper bound of a multiplied interval gushes forth *)
   Lemma iv_mul_hi : forall i1 i2 : Interval Pa,
     hi (iv_mul i1 i2) = Pa_mul (hi i1) (hi i2).
   Proof. reflexivity. Qed.
 
+  (* scaling preserves monotonicity, the ordering can't escape even when amplified *)
   Lemma iv_scale_monotonic : forall k i,
     Pa_le (lo i) (hi i) -> Pa_le (lo (iv_scale k i)) (hi (iv_scale k i)).
   Proof.
     intros k i Hwf.
+    (* expose the scaling and ordering *)
     unfold iv_scale, Pa_le, Pa_scale in *.
     simpl.
+    (* multiplication preserves the ordering, pressure scales uniformly *)
     apply PeanoNat.Nat.mul_le_mono_l.
     exact Hwf.
   Qed.
 
+  (* adding well-formed intervals yields well-formed result, pressure pools cleanly *)
   Lemma iv_add_wf : forall i1 i2,
     interval_wf_Pa i1 -> interval_wf_Pa i2 ->
     interval_wf_Pa (iv_add i1 i2).
@@ -231,9 +297,11 @@ Module Units.
     intros i1 i2 H1 H2.
     unfold interval_wf_Pa, Pa_le, iv_add, Pa_add in *.
     simpl in *.
+    (* addition respects ordering on both sides *)
     apply PeanoNat.Nat.add_le_mono; assumption.
   Qed.
 
+  (* multiplying well-formed intervals stays well-formed, compound pressure contained *)
   Lemma iv_mul_wf : forall i1 i2,
     interval_wf_Pa i1 -> interval_wf_Pa i2 ->
     interval_wf_Pa (iv_mul i1 i2).
@@ -241,9 +309,11 @@ Module Units.
     intros i1 i2 H1 H2.
     unfold interval_wf_Pa, Pa_le, iv_mul, Pa_mul in *.
     simpl.
+    (* multiplication preserves ordering *)
     apply PeanoNat.Nat.mul_le_mono; assumption.
   Qed.
 
+  (* division respects ordering when the divisor is positive, flow distributes evenly *)
   Lemma div_le_mono_pos : forall a b c,
     a <= b -> c > 0 -> Nat.div a c <= Nat.div b c.
   Proof.
@@ -251,6 +321,7 @@ Module Units.
     apply Nat.div_le_mono; lia.
   Qed.
 
+  (* dividing a well-formed interval stays well-formed, pressure dilutes but stays ordered *)
   Lemma iv_div_wf : forall i d,
     interval_wf_Pa i -> interval_wf_Pa (iv_div i d).
   Proof.
@@ -259,6 +330,7 @@ Module Units.
     apply Nat.div_le_mono; [lia | exact H].
   Qed.
 
+  (* adding distance intervals preserves well-formedness, passage extends cleanly *)
   Lemma iv_mm_add_wf : forall i1 i2,
     interval_wf_mm i1 -> interval_wf_mm i2 ->
     interval_wf_mm (iv_mm_add i1 i2).
@@ -269,6 +341,7 @@ Module Units.
     apply PeanoNat.Nat.add_le_mono; assumption.
   Qed.
 
+  (* scaling distance intervals preserves well-formedness, passage widens uniformly *)
   Lemma iv_mm_scale_wf : forall k i,
     interval_wf_mm i -> interval_wf_mm (iv_mm_scale k i).
   Proof.
@@ -279,6 +352,7 @@ Module Units.
     exact H.
   Qed.
 
+  (* dividing distance intervals preserves well-formedness, passage constricts evenly *)
   Lemma iv_mm_div_wf : forall i d,
     interval_wf_mm i -> interval_wf_mm (iv_mm_div i d).
   Proof.
@@ -287,6 +361,7 @@ Module Units.
     apply Nat.div_le_mono; [lia | exact H].
   Qed.
 
+  (* a positive differential means there's net expulsive force, something will flow *)
   Definition positive_differential (diff : Interval Pa) : Prop :=
     pressure_Pa (lo diff) > 0.
 End Units.
@@ -373,6 +448,7 @@ Module Anatomy.
      - RAIR relaxation typically 20-40 cmH2O drop.
   *)
 
+  (* the inner ring, clenching involuntarily, refusing to let go *)
   Record InternalSphincter := mkIAS {
     ias_length : Interval mm;                (* 25-30mm *)
     ias_thickness : Interval mm;             (* 2-4mm *)
@@ -381,6 +457,7 @@ Module Anatomy.
     ias_relaxation_magnitude : Interval Pa;  (* pressure drop on RAIR *)
   }.
 
+  (* the default inner sphincter, baseline resistance to unplanned release *)
   Definition default_ias : InternalSphincter :=
     mkIAS
       (mkInterval (Mkmm 25) (Mkmm 30))
@@ -402,6 +479,7 @@ Module Anatomy.
        Handbook of Physiology. 1968.
   *)
 
+  (* the outer ring, under conscious control, the last line of defense *)
   Record ExternalSphincter := mkEAS {
     eas_length : Interval mm;                 (* 8-10mm *)
     eas_resting_pressure : Interval Pa;       (* adds 15-25 cmH2O to IAS *)
@@ -410,6 +488,7 @@ Module Anatomy.
     eas_voluntary_relaxation_floor : Interval Pa;  (* minimum achievable *)
   }.
 
+  (* the default outer sphincter, parameters for voluntary clenching *)
   Definition default_eas : ExternalSphincter :=
     mkEAS
       (mkInterval (Mkmm 8) (Mkmm 10))
@@ -426,6 +505,7 @@ Module Anatomy.
      The "kink" that prevents passive leakage.
   *)
 
+  (* the sling muscle, kinked tight at rest, must loosen to let anything through *)
   Record Puborectalis := mkPR {
     pr_resting_angle : Interval deg;          (* 80-92° *)
     pr_defecation_angle : Interval deg;       (* 126-142° *)
@@ -433,6 +513,7 @@ Module Anatomy.
     pr_tone_dependency : Interval deg;        (* angle change per unit voluntary effort *)
   }.
 
+  (* default sling parameters, the kink that must straighten *)
   Definition default_puborectalis : Puborectalis :=
     mkPR
       (mkInterval (Mkdeg 80) (Mkdeg 92))
@@ -447,12 +528,14 @@ Module Anatomy.
      Includes diaphragm (descends), abdominals (contract), pelvic floor.
   *)
 
+  (* the pushing apparatus, bearing down to force everything out *)
   Record AbdominalWall := mkAW {
     aw_max_valsalva_pressure : Interval Pa;   (* 40-100+ cmH2O achievable *)
     aw_sustainable_pressure : Interval Pa;    (* maintainable without strain *)
     aw_fatigue_curve : sec -> Interval Pa;    (* pressure decay over time *)
   }.
 
+  (* default pushing parameters, the force that drives expulsion *)
   Definition default_abdominal_wall : AbdominalWall :=
     mkAW
       (mkInterval (MkPa 4000) (MkPa 10000))
@@ -462,6 +545,7 @@ Module Anatomy.
 
 
 
+  (* the final passage, the exit through which all must pass *)
   Record AnalCanal := mkAC {
     ac_length : Interval mm;                  (* 25-50mm *)
     ac_resting_diameter : Interval mm;        (* functionally closed *)
@@ -469,15 +553,16 @@ Module Anatomy.
     ac_mucosal_friction : Interval cP;        (* surface friction coefficient *)
   }.
 
+  (* default exit dimensions, the bottleneck *)
   Definition default_anal_canal : AnalCanal :=
     mkAC
       (mkInterval (Mkmm 25) (Mkmm 50))
       (mkInterval (Mkmm 0) (Mkmm 5))
       (mkInterval (Mkmm 30) (Mkmm 40))
       (mkInterval (MkcP 100) (MkcP 500)).
-  
-  
-  
+
+
+  (* the complete anatomical configuration, all passages and valves bundled *)
   Record AnatomicalConfig := mkAnatomy {
     rectum : Rectum;
     ias : InternalSphincter;
@@ -486,7 +571,8 @@ Module Anatomy.
     abdominal_wall : AbdominalWall;
     anal_canal : AnalCanal;
   }.
-  
+
+  (* the standard human configuration, average dimensions for average loads *)
   Definition default_anatomy : AnatomicalConfig :=
     mkAnatomy
       default_rectum
@@ -510,8 +596,8 @@ End Anatomy.
 
 Module Bolus.
   Import Units.
-  
-  
+
+  (* the seven consistencies, from concrete to liquid catastrophe *)
   Inductive BristolType : Type :=
     | Type1_SeparateHardLumps      (* severe constipation *)
     | Type2_LumpySausage           (* mild constipation *)
@@ -519,9 +605,9 @@ Module Bolus.
     | Type4_SmoothSoftSausage      (* normal, ideal *)
     | Type5_SoftBlobsClearEdges    (* lacking fiber *)
     | Type6_FluffentPieces         (* mild diarrhea *)
-    | Type7_WateryNoSolids.        (* severe diarrhea *)
-  
-  
+    | Type7_WateryNoSolids.        (* severe diarrhea, no holding this back *)
+
+  (* the physical properties of the payload, determining how it flows *)
   Record BolusPhysics := mkBolusPhysics {
     bp_viscosity : Interval cP;         (* resistance to flow *)
     bp_yield_stress : Interval Pa;      (* force to initiate movement *)
@@ -529,7 +615,8 @@ Module Bolus.
     bp_fragmentability : bool;          (* breaks into pieces vs. continuous *)
     bp_typical_diameter : Interval mm;
   }.
-  
+
+  (* map each Bristol type to its physical properties, from solid to liquid *)
   Definition bristol_to_physics (bt : BristolType) : BolusPhysics :=
     match bt with
     | Type1_SeparateHardLumps =>
@@ -584,6 +671,7 @@ Module Bolus.
     end.
   
   
+  (* the complete payload specification, everything that needs to come out *)
   Record Bolus := mkBolus {
     bolus_type : BristolType;
     bolus_volume : Interval mL;         (* total payload *)
@@ -592,24 +680,30 @@ Module Bolus.
     bolus_physics : BolusPhysics;
   }.
 
+  (* let a bolus be used directly as its type or physics, implicit conversions *)
   Coercion bolus_type : Bolus >-> BristolType.
   Coercion bolus_physics : Bolus >-> BolusPhysics.
 
+  (* valid volume: something is actually there, and bounds are ordered *)
   Definition volume_valid (vol : Interval mL) : Prop :=
     volume_mL (lo vol) > 0 /\ mL_le (lo vol) (hi vol).
 
+  (* decidable: either there's a valid payload or there isn't *)
   Lemma volume_valid_dec : forall vol,
     {volume_valid vol} + {~volume_valid vol}.
   Proof.
     intros vol.
     unfold volume_valid, mL_le.
+    (* check if there's actually something there *)
     destruct (Compare_dec.gt_dec (volume_mL (lo vol)) 0) as [Hpos | Hnpos].
+    (* check if bounds are ordered *)
     - destruct (Compare_dec.le_dec (volume_mL (lo vol)) (volume_mL (hi vol))) as [Hwf | Hnwf].
       + left. split; assumption.
       + right. intros [_ Hwf]. lia.
     - right. intros [Hpos _]. lia.
   Defined.
 
+  (* construct a bolus from type and volume, deriving geometry from physics *)
   Definition make_bolus (bt : BristolType) (vol : Interval mL) : Bolus :=
     let physics := bristol_to_physics bt in
     mkBolus
@@ -620,14 +714,17 @@ Module Bolus.
       (bp_typical_diameter physics)
       physics.
 
+  (* construct with proof of validity, the safe way to create a payload *)
   Definition make_bolus_safe (bt : BristolType) (vol : Interval mL)
     (Hvalid : volume_valid vol) : Bolus :=
     make_bolus bt vol.
 
+  (* well-formedness: there's something there and it's properly bounded *)
   Definition bolus_wf (b : Bolus) : Prop :=
     volume_mL (lo (bolus_volume b)) > 0 /\
     mL_le (lo (bolus_volume b)) (hi (bolus_volume b)).
 
+  (* construction preserves well-formedness, valid inputs yield valid output *)
   Lemma make_bolus_wf :
     forall bt vol,
     volume_mL (lo vol) > 0 ->
@@ -640,10 +737,12 @@ Module Bolus.
     split; assumption.
   Qed.
 
+  (* safe construction guarantees well-formedness by carrying the proof *)
   Lemma make_bolus_safe_wf :
     forall bt vol Hvalid,
     bolus_wf (make_bolus_safe bt vol Hvalid).
   Proof.
+    (* the validity proof splits into positivity and ordering *)
     intros bt vol [Hpos Hwf].
     unfold bolus_wf, make_bolus_safe, make_bolus.
     simpl.
@@ -661,10 +760,13 @@ Module Bolus.
      Range: 50 (severely dehydrated) to 150 (very well hydrated).
   *)
 
+  (* hydration as a percentage, affecting how freely things flow *)
   Definition HydrationLevel := nat.
 
+  (* baseline hydration, neither dried out nor oversaturated *)
   Definition normal_hydration : HydrationLevel := 100.
 
+  (* adjust physics based on hydration, water loosens everything *)
   Definition apply_hydration (h : HydrationLevel) (physics : BolusPhysics) : BolusPhysics :=
     let factor := Nat.max 50 (Nat.min h 150) in
     let inv_factor := 200 - factor in
@@ -681,6 +783,7 @@ Module Bolus.
       (bp_fragmentability physics)
       (bp_typical_diameter physics).
 
+  (* more water means less resistance, things slide through easier *)
   Lemma hydration_reduces_viscosity :
     forall h physics,
     h >= 100 ->
@@ -690,7 +793,9 @@ Module Bolus.
     intros h physics Hh.
     unfold apply_hydration.
     simpl.
+    (* the inverse factor is at most 100 when well hydrated *)
     assert (Hinv: 200 - Nat.max 50 (Nat.min h 150) <= 100) by lia.
+    (* division by 100 with factor <= 100 gives result <= original *)
     assert (Hdiv: Nat.div (viscosity_cP (hi (bp_viscosity physics)) *
                            (200 - Nat.max 50 (Nat.min h 150))) 100 <=
                   viscosity_cP (hi (bp_viscosity physics))).
@@ -700,6 +805,7 @@ Module Bolus.
     exact Hdiv.
   Qed.
 
+  (* less water means more resistance, things get stuck *)
   Lemma dehydration_increases_viscosity :
     forall h physics,
     h <= 100 ->
@@ -710,7 +816,9 @@ Module Bolus.
     intros h physics Hle Hge.
     unfold apply_hydration.
     simpl.
+    (* the inverse factor is at least 100 when dehydrated *)
     assert (Hinv: 200 - Nat.max 50 (Nat.min h 150) >= 100) by lia.
+    (* multiplication by factor >= 100 then div by 100 gives >= original *)
     assert (Hdiv: Nat.div (viscosity_cP (lo (bp_viscosity physics)) *
                            (200 - Nat.max 50 (Nat.min h 150))) 100 >=
                   viscosity_cP (lo (bp_viscosity physics))).
@@ -720,6 +828,7 @@ Module Bolus.
     exact Hdiv.
   Qed.
 
+  (* construct a bolus with hydration factored in *)
   Definition make_bolus_hydrated (bt : BristolType) (vol : Interval mL) (h : HydrationLevel) : Bolus :=
     let base_physics := bristol_to_physics bt in
     let adjusted_physics := apply_hydration h base_physics in
@@ -744,22 +853,27 @@ Module Bolus.
      (Most ingested volume is absorbed; only residue forms stool.)
   *)
 
+  (* input to the system, what goes in must come out *)
   Record Meal := mkMeal {
     meal_volume : Interval mL;
     meal_fiber_content : nat;
     meal_fat_content : nat;
   }.
 
+  (* well-formed meal: something was actually consumed *)
   Definition meal_wf (m : Meal) : Prop :=
     volume_mL (lo (meal_volume m)) > 0 /\
     mL_le (lo (meal_volume m)) (hi (meal_volume m)).
 
+  (* decidable: either you ate something or you didn't *)
   Lemma meal_wf_dec : forall m,
     {meal_wf m} + {~meal_wf m}.
   Proof.
     intros m.
     unfold meal_wf, mL_le.
+    (* check if input volume is positive *)
     destruct (Compare_dec.gt_dec (volume_mL (lo (meal_volume m))) 0).
+    (* check if bounds are ordered *)
     - destruct (Compare_dec.le_dec (volume_mL (lo (meal_volume m)))
                                     (volume_mL (hi (meal_volume m)))).
       + left. split; assumption.
@@ -767,14 +881,17 @@ Module Bolus.
     - right. intros [H _]. lia.
   Defined.
 
+  (* most of what you eat gets absorbed, only 1/10 becomes output *)
   Definition absorption_factor : nat := 10.
 
+  (* fiber determines consistency, more fiber means smoother passage *)
   Definition fiber_to_bristol (fiber : nat) : BristolType :=
     if Nat.leb 30 fiber then Type4_SmoothSoftSausage
     else if Nat.leb 20 fiber then Type3_SausageWithCracks
     else if Nat.leb 10 fiber then Type2_LumpySausage
     else Type1_SeparateHardLumps.
 
+  (* the transformation from input to output, the gut does its work *)
   Definition digest (m : Meal) (h : HydrationLevel) : Bolus :=
     let output_vol_lo := Nat.div (volume_mL (lo (meal_volume m))) absorption_factor in
     let output_vol_hi := Nat.div (volume_mL (hi (meal_volume m))) absorption_factor in
@@ -782,18 +899,21 @@ Module Bolus.
     let bt := fiber_to_bristol (meal_fiber_content m) in
     make_bolus_hydrated bt (mkInterval (MkmL safe_lo) (MkmL (Nat.max safe_lo output_vol_hi))) h.
 
+  (* max with 1 is always positive, there's always something *)
   Lemma max_1_gt_0 : forall n, Nat.max 1 n > 0.
   Proof.
     intros n.
     destruct (Nat.max_spec 1 n) as [[_ Heq] | [_ Heq]]; rewrite Heq; lia.
   Qed.
 
+  (* max of two values bounded by a common ceiling *)
   Lemma max_le_max : forall a b c, a <= c -> b <= c -> Nat.max a b <= c.
   Proof.
     intros a b c Ha Hb.
     destruct (Nat.max_spec a b) as [[_ Heq] | [_ Heq]]; rewrite Heq; lia.
   Qed.
 
+  (* digestion always produces a valid bolus, something will come out *)
   Lemma digest_produces_wf_bolus :
     forall m h,
     meal_wf m ->
@@ -803,11 +923,14 @@ Module Bolus.
     unfold bolus_wf, digest, make_bolus_hydrated, absorption_factor.
     simpl.
     split.
+    (* output volume is at least 1 *)
     - apply max_1_gt_0.
+    (* bounds remain ordered *)
     - unfold mL_le. simpl.
       apply Nat.le_max_l.
   Qed.
 
+  (* a bolus with proof of where it came from, tracing the inevitable *)
   Record BolusWithProvenance := mkBolusP {
     the_bolus : Bolus;
     source_meal : Meal;
@@ -815,36 +938,45 @@ Module Bolus.
     provenance_valid : the_bolus = digest source_meal source_hydration;
   }.
 
+  (* let provenance-tracked boluses be used as plain boluses *)
   Coercion the_bolus : BolusWithProvenance >-> Bolus.
 
+  (* construct a bolus while recording its origins *)
   Definition make_bolus_with_provenance (m : Meal) (h : HydrationLevel)
     : BolusWithProvenance :=
     mkBolusP (digest m h) m h eq_refl.
 
+  (* if the meal was valid, the output is valid, garbage in garbage out *)
   Lemma provenance_implies_wf :
     forall bp : BolusWithProvenance,
     meal_wf (source_meal bp) ->
     bolus_wf (the_bolus bp).
   Proof.
     intros bp Hmeal.
+    (* rewrite using the provenance proof *)
     rewrite (provenance_valid bp).
+    (* digestion preserves well-formedness *)
     apply digest_produces_wf_bolus.
     exact Hmeal.
   Qed.
 
+  (* every bolus came from somewhere, nothing appears from nowhere *)
   Lemma no_bolus_ex_nihilo :
     forall bp : BolusWithProvenance,
     exists m h, the_bolus bp = digest m h.
   Proof.
     intros bp.
+    (* the source is recorded in the structure *)
     exists (source_meal bp).
     exists (source_hydration bp).
     exact (provenance_valid bp).
   Qed.
 
+  (* a typical meal, average consumption *)
   Definition typical_meal : Meal :=
     mkMeal (mkInterval (MkmL 500) (MkmL 800)) 25 30.
 
+  (* typical meals are well-formed, people do eat *)
   Lemma typical_meal_wf : meal_wf typical_meal.
   Proof.
     unfold meal_wf, typical_meal, mL_le.
@@ -852,9 +984,11 @@ Module Bolus.
     lia.
   Qed.
 
+  (* the resulting bolus from a typical meal *)
   Definition typical_bolus_with_provenance : BolusWithProvenance :=
     make_bolus_with_provenance typical_meal normal_hydration.
 
+  (* typical input yields valid output *)
   Lemma typical_bolus_provenance_wf :
     bolus_wf (the_bolus typical_bolus_with_provenance).
   Proof.
@@ -876,16 +1010,16 @@ End Bolus.
 
 Module Posture.
   Import Units.
-  
-  
+
+  (* the positions from which one attempts release *)
   Inductive PostureType : Type :=
     | Standing                (* anorectal angle ~90°, defecation difficult *)
     | SittingUpright          (* Western toilet, ~100° *)
     | SittingLeaning          (* leaning forward, ~110-120° *)
     | SittingWithFootstool    (* Squatty Potty, ~120-130° *)
-    | FullSquat.              (* traditional/anatomical, ~130-140° *)
-  
-  
+    | FullSquat.              (* traditional/anatomical, ~130-140°, optimal *)
+
+  (* the geometry that results from a posture, determining flow resistance *)
   Record PostureGeometry := mkPostureGeometry {
     hip_flexion_angle : Interval deg;
     resultant_anorectal_angle : Interval deg;
@@ -893,33 +1027,34 @@ Module Posture.
     pelvic_floor_relaxation_bonus : Interval Pa;  (* easier PR relaxation *)
   }.
   
+  (* map each posture to its resulting geometry, how open things get *)
   Definition posture_to_geometry (pt : PostureType) : PostureGeometry :=
     match pt with
-    | Standing =>
+    | Standing =>  (* upright, passage kinked, nothing wants to flow *)
         mkPostureGeometry
           (mkInterval (Mkdeg 170) (Mkdeg 180))
           (mkInterval (Mkdeg 85) (Mkdeg 95))
           false
           (mkInterval (MkPa 0) (MkPa 0))
-    | SittingUpright =>
+    | SittingUpright =>  (* Western toilet, slightly better but still kinked *)
         mkPostureGeometry
           (mkInterval (Mkdeg 85) (Mkdeg 95))
           (mkInterval (Mkdeg 95) (Mkdeg 105))
           false
           (mkInterval (MkPa 200) (MkPa 500))
-    | SittingLeaning =>
+    | SittingLeaning =>  (* leaning forward, passage straightening *)
         mkPostureGeometry
           (mkInterval (Mkdeg 60) (Mkdeg 75))
           (mkInterval (Mkdeg 110) (Mkdeg 120))
           false
           (mkInterval (MkPa 500) (MkPa 1000))
-    | SittingWithFootstool =>
+    | SittingWithFootstool =>  (* elevated feet, thighs compressing abdomen *)
         mkPostureGeometry
           (mkInterval (Mkdeg 40) (Mkdeg 55))
           (mkInterval (Mkdeg 120) (Mkdeg 130))
           true
           (mkInterval (MkPa 1000) (MkPa 1500))
-    | FullSquat =>
+    | FullSquat =>  (* evolutionary optimum, passage fully straightened *)
         mkPostureGeometry
           (mkInterval (Mkdeg 20) (Mkdeg 40))
           (mkInterval (Mkdeg 130) (Mkdeg 140))
@@ -949,23 +1084,28 @@ Module Posture.
      This eliminates jump discontinuities present in threshold-based models
      while remaining tractable for formal verification.
   *)
+  (* compute resistance factor from angle, straighter means less resistance *)
   Definition continuous_angle_factor (angle_val : nat) : nat :=
     let clamped := Nat.max 80 (Nat.min angle_val 140) in
     let from_max := 140 - clamped in
     1 + Nat.div (from_max * 2) 60.
 
+  (* the factor is always between 1 and 3, bounded resistance *)
   Lemma continuous_angle_factor_bounds :
     forall angle_val, 1 <= continuous_angle_factor angle_val <= 3.
   Proof.
     intros angle_val.
     unfold continuous_angle_factor.
     split.
+    (* at least 1, there's always some resistance *)
     - lia.
+    (* at most 3, even the worst angle has finite resistance *)
     - assert (H: Nat.div ((140 - Nat.max 80 (Nat.min angle_val 140)) * 2) 60 <= 2).
       { apply PeanoNat.Nat.div_le_upper_bound; lia. }
       lia.
   Qed.
 
+  (* larger angle means smaller factor, straightening reduces resistance *)
   Lemma continuous_angle_factor_monotonic :
     forall a1 a2, a1 <= a2 -> continuous_angle_factor a2 <= continuous_angle_factor a1.
   Proof.
@@ -978,6 +1118,7 @@ Module Posture.
       lia.
   Qed.
 
+  (* compute required pressure based on angle and bolus properties *)
   Definition angle_pressure_relationship (angle : deg) (b : Bolus.Bolus) : Interval Pa :=
     let physics := Bolus.bolus_physics b in
     let base_pressure := pressure_Pa (lo (Bolus.bp_yield_stress physics)) in
@@ -986,6 +1127,7 @@ Module Posture.
     mkInterval (MkPa (Nat.mul base_pressure angle_factor))
                (MkPa (Nat.mul (pressure_Pa (hi (Bolus.bp_yield_stress physics))) (S angle_factor))).
 
+  (* wider angle means less pressure needed, the passage opens up *)
   Lemma angle_pressure_decreases_with_angle :
     forall b : Bolus.Bolus,
     forall a1 a2 : deg,
@@ -995,12 +1137,13 @@ Module Posture.
     intros b a1 a2 Hle.
     unfold angle_pressure_relationship, Pa_le, deg_le in *.
     simpl.
+    (* pressure scales with angle factor *)
     apply PeanoNat.Nat.mul_le_mono_l.
     apply le_n_S.
+    (* and angle factor decreases as angle increases *)
     apply continuous_angle_factor_monotonic.
     exact Hle.
   Qed.
-  
 
 End Posture.
 
@@ -1037,6 +1180,7 @@ Module Pressure.
      reasonable friction values in the 100-500 Pa range for normal stool.
   *)
 
+  (* all the forces resisting expulsion, everything trying to hold it in *)
   Record ResistanceComponents := mkResistance {
     r_ias : Interval Pa;          (* internal sphincter contribution *)
     r_eas : Interval Pa;          (* external sphincter contribution *)
@@ -1045,10 +1189,12 @@ Module Pressure.
     r_total : Interval Pa;        (* sum with interaction terms *)
   }.
 
+  (* scaling based on diameter squared, wider passage means less friction *)
   Definition friction_scaling_divisor (diameter : Interval mm) : nat :=
     let d_avg := Nat.div (distance_mm (lo diameter) + distance_mm (hi diameter)) 2 in
     S (d_avg * d_avg * 10).
 
+  (* compute frictional resistance, how much the walls grip the payload *)
   Definition compute_friction (b : Bolus) : Interval Pa :=
     let viscosity := bp_viscosity b in
     let length := bolus_length b in
@@ -1058,6 +1204,7 @@ Module Pressure.
     let raw_hi := Nat.mul (viscosity_cP (hi viscosity)) (distance_mm (hi length)) in
     mkInterval (MkPa (Nat.div raw_lo divisor)) (MkPa (Nat.div raw_hi divisor)).
 
+  (* friction is well-formed if inputs are, bounds stay ordered *)
   Lemma compute_friction_bounded :
     forall b : Bolus,
     interval_wf_cP (bp_viscosity (bolus_physics b)) ->
@@ -1068,15 +1215,19 @@ Module Pressure.
     unfold compute_friction, interval_wf_cP, interval_wf_mm, cP_le, mm_le, Pa_le in *.
     simpl.
     set (divisor := friction_scaling_divisor (bolus_max_diameter b)).
+    (* divisor is always positive, can't divide by zero *)
     assert (Hdiv_pos: divisor > 0) by (unfold divisor, friction_scaling_divisor; lia).
+    (* the numerator respects ordering *)
     assert (Hnum: viscosity_cP (lo (bp_viscosity (bolus_physics b))) * distance_mm (lo (bolus_length b)) <=
                   viscosity_cP (hi (bp_viscosity (bolus_physics b))) * distance_mm (hi (bolus_length b))).
     { apply PeanoNat.Nat.mul_le_mono; assumption. }
+    (* division preserves the ordering *)
     apply PeanoNat.Nat.div_le_mono with (c := divisor) in Hnum.
     - exact Hnum.
     - lia.
   Qed.
 
+  (* compute total resistance at rest, everything clenched tight *)
   Definition compute_resistance
     (anat : AnatomicalConfig) (b : Bolus) (pg : PostureGeometry)
     : ResistanceComponents :=
@@ -1091,6 +1242,7 @@ Module Pressure.
              pressure_Pa (hi friction) + pressure_Pa (hi angle_r))) in
     mkResistance ias_r eas_r friction angle_r total.
 
+  (* compute resistance with actual sphincter states, things loosening *)
   Definition compute_resistance_with_sphincter_state
     (b : Bolus) (pg : PostureGeometry)
     (ias_actual eas_actual : Interval Pa)
@@ -1104,14 +1256,17 @@ Module Pressure.
              pressure_Pa (hi friction) + pressure_Pa (hi angle_r))) in
     mkResistance ias_actual eas_actual friction angle_r total.
 
+  (* sphincter pressure when fully relaxed, the gates open *)
   Definition relaxed_sphincter_pressure : Interval Pa :=
     mkInterval (MkPa 500) (MkPa 500).
 
+  (* resistance during active expulsion, sphincters relaxed *)
   Definition compute_expulsion_resistance (b : Bolus) (pg : PostureGeometry)
     : ResistanceComponents :=
     compute_resistance_with_sphincter_state b pg
       relaxed_sphincter_pressure relaxed_sphincter_pressure.
 
+  (* relaxed resistance is always less than resting, letting go reduces resistance *)
   Lemma expulsion_resistance_le_resting :
     forall anat b pg,
     500 <= pressure_Pa (hi (ias_resting_pressure (ias anat))) ->
@@ -1126,6 +1281,7 @@ Module Pressure.
     lia.
   Qed.
 
+  (* extract ordering from boolean comparison *)
   Lemma le_from_leb : forall n m, Nat.leb n m = true -> n <= m.
   Proof.
     intros n m H.
@@ -1133,6 +1289,7 @@ Module Pressure.
     exact H.
   Defined.
 
+  (* the default anatomy has sphincters that can actually hold things *)
   Lemma default_anatomy_has_adequate_resting_pressures :
     500 <= pressure_Pa (hi (ias_resting_pressure (ias default_anatomy))) /\
     500 <= pressure_Pa (hi (eas_resting_pressure (eas default_anatomy))).
@@ -1146,13 +1303,14 @@ Module Pressure.
      Limited by abdominal wall strength and cardiovascular safety.
   *)
   
+  (* all the forces driving expulsion, everything pushing it out *)
   Record ExpulsiveComponents := mkExpulsive {
     e_valsalva : Interval Pa;         (* abdominal straining *)
     e_rectal_contraction : Interval Pa;  (* peristaltic contribution *)
     e_gravity_assist : Interval Pa;   (* posture-dependent *)
     e_total : Interval Pa;
   }.
-  
+
   (*
      Expulsive pressure constants.
 
@@ -1169,9 +1327,12 @@ Module Pressure.
      thigh-abdomen compression in flexed postures. Measured via
      intra-abdominal pressure monitoring during squatting.
   *)
+  (* the safe ceiling, beyond which straining becomes dangerous *)
   Definition safe_expulsive_bound : nat := 15000.
+  (* baseline peristaltic pressure, the gut's own pushing *)
   Definition peristaltic_base_lo : nat := 500.
   Definition peristaltic_base_hi : nat := 1500.
+  (* extra pressure from thighs squeezing the abdomen *)
   Definition compression_bonus : nat := 1000.
 
   (*
@@ -1200,6 +1361,7 @@ Module Pressure.
      - Squatting: ~2500-3500 Pa (optimal)
   *)
 
+  (* compute total expulsive force, everything pushing to get it out *)
   Definition compute_expulsive
     (anat : AnatomicalConfig) (pg : PostureGeometry) : ExpulsiveComponents :=
     let aw := abdominal_wall anat in
@@ -1210,11 +1372,12 @@ Module Pressure.
     let gravity := iv_add pf_bonus (mkInterval (MkPa compress) (MkPa compress)) in
     let raw_total_lo := pressure_Pa (lo valsalva) + pressure_Pa (lo peristalsis) + pressure_Pa (lo gravity) in
     let raw_total_hi := pressure_Pa (hi valsalva) + pressure_Pa (hi peristalsis) + pressure_Pa (hi gravity) in
+    (* cap at safe limit, can't push harder than your body allows *)
     let capped_lo := Nat.min raw_total_lo safe_expulsive_bound in
     let capped_hi := Nat.min raw_total_hi safe_expulsive_bound in
     mkExpulsive valsalva peristalsis gravity (mkInterval (MkPa capped_lo) (MkPa capped_hi)).
 
-  
+  (* the net force: push minus resistance, what actually drives movement *)
   Definition pressure_differential
     (exp : ExpulsiveComponents) (res : ResistanceComponents) : Interval Pa :=
     iv_sub (e_total exp) (r_total res).
@@ -1225,6 +1388,7 @@ Module Pressure.
      Flow rate is function of pressure differential and viscosity.
   *)
   
+  (* passage possible when push exceeds all resistance, it will flow *)
   Definition passage_possible (exp : ExpulsiveComponents) (res : ResistanceComponents) : Prop :=
     pressure_Pa (lo (e_total exp)) > pressure_Pa (hi (r_total res)).
 
@@ -1246,6 +1410,7 @@ Module Pressure.
      a scaling factor that produces reasonable mm/tick values.
   *)
 
+  (* compute flow rate from pressure and viscosity, how fast it moves *)
   Definition flow_rate
     (pressure_diff : Interval Pa) (physics : BolusPhysics) : Interval mm :=
     let viscosity := bp_viscosity physics in
@@ -1256,6 +1421,7 @@ Module Pressure.
     let flow_hi := Nat.div effective_pressure_hi (S (viscosity_cP (lo viscosity))) in
     mkInterval (Mkmm flow_lo) (Mkmm flow_hi).
 
+  (* flow is never negative, it either moves forward or stays put *)
   Lemma flow_rate_nonneg :
     forall diff physics,
     distance_mm (lo (flow_rate diff physics)) >= 0.
@@ -1266,6 +1432,7 @@ Module Pressure.
     lia.
   Qed.
 
+  (* sufficient pressure guarantees positive flow, it will move *)
   Lemma flow_rate_positive :
     forall diff physics,
     pressure_Pa (lo diff) > pressure_Pa (hi (bp_yield_stress physics)) + viscosity_cP (hi (bp_viscosity physics)) ->
@@ -1274,8 +1441,10 @@ Module Pressure.
     intros diff physics Hdiff.
     unfold flow_rate.
     simpl.
+    (* the numerator exceeds the divisor *)
     assert (Hnum: pressure_Pa (lo diff) - pressure_Pa (hi (bp_yield_stress physics)) > viscosity_cP (hi (bp_viscosity physics))).
     { lia. }
+    (* so division yields at least 1 *)
     assert (Hdiv: Nat.div (pressure_Pa (lo diff) - pressure_Pa (hi (bp_yield_stress physics))) (S (viscosity_cP (hi (bp_viscosity physics)))) > 0).
     { apply PeanoNat.Nat.div_str_pos.
       split.
@@ -1284,9 +1453,11 @@ Module Pressure.
     exact Hdiv.
   Qed.
 
+  (* the threshold above which flow becomes possible *)
   Definition margin_for_flow (physics : BolusPhysics) : nat :=
     pressure_Pa (hi (bp_yield_stress physics)) + viscosity_cP (hi (bp_viscosity physics)).
 
+  (* exceeding resistance plus margin guarantees movement *)
   Lemma passage_possible_with_margin :
     forall exp res physics,
     pressure_Pa (lo (e_total exp)) > pressure_Pa (hi (r_total res)) + margin_for_flow physics ->
@@ -1299,6 +1470,7 @@ Module Pressure.
     lia.
   Qed.
 
+  (* if passage is possible, there's a positive pressure differential *)
   Lemma passage_possible_implies_positive_differential :
     forall exp res,
     passage_possible exp res ->
@@ -1310,12 +1482,14 @@ Module Pressure.
     lia.
   Qed.
 
+  (* decidable: either it can pass or it can't *)
   Lemma passage_possible_dec :
     forall exp res,
     {passage_possible exp res} + {~passage_possible exp res}.
   Proof.
     intros exp res.
     unfold passage_possible.
+    (* compare the pressures directly *)
     destruct (Compare_dec.gt_dec (pressure_Pa (lo (e_total exp))) (pressure_Pa (hi (r_total res)))).
     - left. exact g.
     - right. lia.
@@ -1335,21 +1509,22 @@ End Pressure.
 Module Neural.
   Import Units.
   Import Anatomy.
-  
-  
+
   (*
      Distension of rectum -> automatic relaxation of IAS.
      This is the "need to go" signal. Cannot be voluntarily suppressed,
      but EAS can override.
   *)
-  
+
+  (* the rectoanal inhibitory reflex, the body's signal that it's time *)
   Record RAIR_Response := mkRAIR {
     rair_distension_trigger : Interval mL;  (* volume to trigger *)
     rair_ias_relaxation : Interval Pa;      (* pressure drop *)
     rair_latency : Interval sec;            (* time to relax *)
     rair_duration : Interval sec;           (* how long relaxation lasts *)
   }.
-  
+
+  (* compute the reflex response based on IAS properties and filling *)
   Definition compute_rair
     (ias : InternalSphincter) (volume : Interval mL) : RAIR_Response :=
     mkRAIR
@@ -1376,6 +1551,7 @@ Module Neural.
      form approximates exponential decay while being tractable in nat.
   *)
 
+  (* the muscle tires, grip weakening, control slipping away with each passing second *)
   Definition eas_fatigue_model
     (eas : ExternalSphincter) (t : sec) : Interval Pa :=
     let max_lo := pressure_Pa (lo (eas_max_squeeze_pressure eas)) in
@@ -1391,6 +1567,7 @@ Module Neural.
     let remaining_hi := floor_hi + Nat.div (range_hi * tau_hi) (S (tau_lo + t_val)) in
     mkInterval (MkPa remaining_lo) (MkPa remaining_hi).
 
+  (* even as strength fades, pressure never goes negative *)
   Lemma eas_fatigue_nonneg :
     forall eas t,
     pressure_Pa (lo (eas_fatigue_model eas t)) >= 0.
@@ -1401,6 +1578,7 @@ Module Neural.
     lia.
   Qed.
 
+  (* the muscle never completely gives out, there's always some floor *)
   Lemma eas_fatigue_above_floor :
     forall eas t,
     pressure_Pa (lo (eas_fatigue_model eas t)) >=
@@ -1412,14 +1590,17 @@ Module Neural.
     lia.
   Qed.
 
+  (* division is antitone in the divisor, spreading thin weakens the result *)
   Lemma div_antitone : forall a b c,
     b > 0 -> b <= c -> a / c <= a / b.
   Proof.
     intros a b c Hpos Hle.
+    (* handle degenerate case *)
     destruct (Nat.eq_dec c 0) as [Hc0 | Hc0].
     - lia.
     - assert (Hcpos: c > 0) by lia.
       assert (Hbneq: b <> 0) by lia.
+      (* multiplication and division dance *)
       pose proof (PeanoNat.Nat.mul_div_le a c) as Hdiv.
       assert (Hbc: a / c * b <= a / c * c).
       { apply PeanoNat.Nat.mul_le_mono_l. lia. }
@@ -1430,6 +1611,7 @@ Module Neural.
       + exact Htrans.
   Qed.
 
+  (* as time passes, strength can only drain away, never recover *)
   Lemma eas_fatigue_monotonic :
     forall eas t1 t2,
     time_sec t1 <= time_sec t2 ->
@@ -1439,7 +1621,9 @@ Module Neural.
     intros eas t1 t2 Hle.
     unfold eas_fatigue_model.
     simpl.
+    (* the floor stays constant, only the decaying part changes *)
     apply PeanoNat.Nat.add_le_mono_l.
+    (* apply the antitone division lemma *)
     apply (div_antitone
       ((pressure_Pa (hi (eas_max_squeeze_pressure eas)) -
         pressure_Pa (lo (eas_voluntary_relaxation_floor eas))) *
@@ -1450,21 +1634,25 @@ Module Neural.
     - lia.
   Qed.
 
+  (* tracking the state of continence, how much control remains *)
   Record ContinenceState := mkContinence {
-    eas_contracted : bool;
-    contraction_duration : sec;
-    remaining_strength : Interval Pa;
+    eas_contracted : bool;           (* still clenching *)
+    contraction_duration : sec;      (* how long the desperate hold has lasted *)
+    remaining_strength : Interval Pa; (* what's left before it all lets go *)
   }.
 
+  (* fresh start, full strength, maximum clench *)
   Definition initial_continence (eas : ExternalSphincter) : ContinenceState :=
     mkContinence true (Mksec 0) (eas_max_squeeze_pressure eas).
 
+  (* time passes, strength drains, control erodes *)
   Definition update_continence (eas : ExternalSphincter) (cs : ContinenceState) (dt : sec)
     : ContinenceState :=
     let new_duration := Mksec (time_sec (contraction_duration cs) + time_sec dt) in
     let new_strength := eas_fatigue_model eas new_duration in
     mkContinence (eas_contracted cs) new_duration new_strength.
 
+  (* the point of no return, when all resistance has drained away *)
   Definition continence_exhausted (cs : ContinenceState) : Prop :=
     pressure_Pa (hi (remaining_strength cs)) = 0.
 
@@ -1477,13 +1665,15 @@ Module Neural.
      4. Optional: voluntary contraction of rectal wall
   *)
 
+  (* the conscious commands, deciding whether to hold or let it all out *)
   Record VoluntaryCommands := mkCommands {
-    cmd_eas_relax : bool;
-    cmd_pr_relax : bool;
-    cmd_valsalva_intensity : Interval Pa;
-    cmd_bearing_down : bool;
+    cmd_eas_relax : bool;           (* let go of the outer clench *)
+    cmd_pr_relax : bool;            (* straighten the kink *)
+    cmd_valsalva_intensity : Interval Pa;  (* how hard to push *)
+    cmd_bearing_down : bool;        (* full expulsive effort *)
   }.
 
+  (* compute the actual pushing force, clamped by physical limits *)
   Definition effective_valsalva (cmd : VoluntaryCommands) (aw : Anatomy.AbdominalWall) : Interval Pa :=
     let base := cmd_valsalva_intensity cmd in
     let max_allowed := Anatomy.aw_max_valsalva_pressure aw in
@@ -1492,6 +1682,7 @@ Module Neural.
     let bearing_bonus := if cmd_bearing_down cmd then 500 else 0 in
     mkInterval (MkPa (clamped_lo + bearing_bonus)) (MkPa (clamped_hi + bearing_bonus)).
 
+  (* bearing down adds force, pushing harder to make it come out *)
   Lemma bearing_down_increases_pressure :
     forall cmd aw,
     cmd_bearing_down cmd = true ->
@@ -1499,14 +1690,17 @@ Module Neural.
   Proof.
     intros cmd aw Hbd.
     unfold effective_valsalva.
+    (* the bearing down flag triggers the bonus *)
     rewrite Hbd.
     simpl.
     apply PeanoNat.Nat.le_add_l.
   Defined.
 
+  (* the command set that says: let it all out now *)
   Definition commands_for_defecation (valsalva : Interval Pa) : VoluntaryCommands :=
     mkCommands true true valsalva true.
 
+  (* defecation commands always permit release *)
   Lemma commands_for_defecation_permits :
     forall v,
     cmd_eas_relax (commands_for_defecation v) = true /\
@@ -1524,13 +1718,14 @@ Module Neural.
      - Process becomes semi-autonomous
   *)
   
+  (* the stages of the process, from calm to urgent to release *)
   Inductive ReflexState : Type :=
-    | Quiescent           (* no rectal contents or below threshold *)
-    | UrgePresent         (* RAIR triggered, EAS holding *)
-    | VoluntaryHold       (* conscious suppression, EAS fatiguing *)
-    | InitiationPhase     (* commands issued, sphincters relaxing *)
-    | ExpulsionPhase      (* autonomous expulsion in progress *)
-    | CompletionPhase.    (* rectum emptying, reflexes winding down *)
+    | Quiescent           (* nothing stirring, empty or below threshold *)
+    | UrgePresent         (* the signal arrives, pressure building, hold beginning *)
+    | VoluntaryHold       (* clenching desperately, strength draining *)
+    | InitiationPhase     (* giving in, sphincters loosening *)
+    | ExpulsionPhase      (* it's coming out, no stopping it now *)
+    | CompletionPhase.    (* emptying, the flood subsiding *)
 
 End Neural.
 
@@ -1550,135 +1745,159 @@ Module StateMachine.
   Import Posture.
   Import Pressure.
   Import Neural.
-  
-  
+
+  (* the complete state of the system at any moment, everything that matters *)
   Record SystemState := mkState {
     anatomy : AnatomicalConfig;
-    bolus : option Bolus;                (* None if rectum empty *)
-    bolus_position : Interval mm;        (* distance from anal verge *)
-    posture : PostureType;
-    reflex_state : ReflexState;
-    voluntary_commands : VoluntaryCommands;
-    ias_pressure : Interval Pa;          (* current IAS tone *)
-    eas_pressure : Interval Pa;          (* current EAS tone *)
-    anorectal_angle : Interval deg;      (* current angle *)
-    elapsed_time : sec;                  (* time in current phase *)
-    eas_fatigue_accumulated : sec;       (* total hold time *)
+    bolus : option Bolus;                (* what's waiting to come out, if anything *)
+    bolus_position : Interval mm;        (* how close to the exit *)
+    posture : PostureType;               (* how you're positioned *)
+    reflex_state : ReflexState;          (* which phase of the ordeal *)
+    voluntary_commands : VoluntaryCommands;  (* what you're trying to do *)
+    ias_pressure : Interval Pa;          (* inner sphincter clenching *)
+    eas_pressure : Interval Pa;          (* outer sphincter gripping *)
+    anorectal_angle : Interval deg;      (* how kinked or straight the path *)
+    elapsed_time : sec;                  (* how long in this desperate phase *)
+    eas_fatigue_accumulated : sec;       (* total time spent clenching *)
   }.
-  
 
+
+  (* the bolus hasn't escaped its bounds yet *)
   Definition position_within_bolus (s : SystemState) : Prop :=
     match bolus s with
     | None => True
     | Some b => mm_le (hi (bolus_position s)) (hi (Bolus.bolus_length b))
     end.
 
+  (* well-formed state, nothing has leaked past its limits *)
   Definition state_wf (s : SystemState) : Prop :=
     position_within_bolus s.
 
 
+  (* the volume at which the urge becomes undeniable *)
   Definition urge_threshold : mL := MkmL 100.
 
+  (* guard for urge arising: quiet state, but enough volume to trigger the signal *)
   Definition guard_urge (s : SystemState) : Prop :=
     reflex_state s = Quiescent /\
     match bolus s with
-    | None => False
-    | Some b => mL_le urge_threshold (lo (bolus_volume b))
+    | None => False  (* nothing there, no urge *)
+    | Some b => mL_le urge_threshold (lo (bolus_volume b))  (* enough to feel it *)
     end.
 
+  (* is there something waiting to escape *)
   Definition has_bolus (s : SystemState) : Prop :=
     match bolus s with
     | None => False
     | Some _ => True
     end.
 
-  (* UrgePresent -> VoluntaryHold *)
+  (* guard for voluntary hold: urge present, refusing to let go, clenching hard *)
   Definition guard_hold (s : SystemState) : Prop :=
     reflex_state s = UrgePresent /\
     cmd_eas_relax (voluntary_commands s) = false /\
     has_bolus s.
 
-  (* UrgePresent -> InitiationPhase *)
+  (* guard for initiation: urge present, giving the command to release *)
   Definition guard_initiate (s : SystemState) : Prop :=
     reflex_state s = UrgePresent /\
     cmd_eas_relax (voluntary_commands s) = true /\
     cmd_pr_relax (voluntary_commands s) = true /\
     has_bolus s.
 
+  (* three minutes of clenching, then the muscles give out *)
   Definition fatigue_limit : sec := Mksec 180.
 
+  (* guard for fatigue failure: held too long, strength depleted, it's coming out *)
   Definition guard_fatigue_failure (s : SystemState) : Prop :=
     reflex_state s = VoluntaryHold /\
     sec_le fatigue_limit (eas_fatigue_accumulated s) /\
     has_bolus s.
 
+  (* below this pressure, the sphincters can no longer resist *)
   Definition relaxation_threshold : Pa := MkPa 500.
 
+  (* guard for expulsion starting: sphincters loose enough, it begins to flow *)
   Definition guard_expulsion_start (s : SystemState) : Prop :=
     reflex_state s = InitiationPhase /\
     Pa_le (hi (eas_pressure s)) relaxation_threshold /\
     Pa_le (hi (ias_pressure s)) relaxation_threshold /\
     has_bolus s.
 
+  (* at position zero, it's out *)
   Definition passage_complete_threshold : mm := Mkmm 0.
 
+  (* guard for completion: expulsion happening and position reached zero, it's all out *)
   Definition guard_completion (s : SystemState) : Prop :=
     reflex_state s = ExpulsionPhase /\
     mm_le (hi (bolus_position s)) passage_complete_threshold /\
     has_bolus s.
 
+  (* the pressure at which sphincters regain their resting grip *)
   Definition resting_tone_threshold : Pa := MkPa 3000.
 
+  (* guard for reset: completion done, sphincters clenching back up, calm restored *)
   Definition guard_reset (s : SystemState) : Prop :=
     reflex_state s = CompletionPhase /\
     Pa_le resting_tone_threshold (lo (eas_pressure s)) /\
     Pa_le resting_tone_threshold (lo (ias_pressure s)).
 
 
+  (* default pressures and positions for state construction *)
   Definition default_ias_pressure : Interval Pa :=
     mkInterval resting_tone_threshold resting_tone_threshold.
   Definition default_eas_pressure : Interval Pa :=
     mkInterval resting_tone_threshold resting_tone_threshold.
+  (* sphincters loose, offering no resistance *)
   Definition relaxed_pressure : Interval Pa :=
     mkInterval relaxation_threshold relaxation_threshold.
+  (* at the exit, nothing left inside *)
   Definition zero_position : Interval mm :=
     mkInterval passage_complete_threshold passage_complete_threshold.
+  (* one second passes *)
   Definition time_step : sec := Mksec 1.
+  (* each hold attempt drains this much endurance *)
   Definition hold_fatigue_increment : sec := Mksec 10.
 
+  (* transition: calm becomes urge, the signal has arrived *)
   Definition transition_to_urge (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             UrgePresent (voluntary_commands s)
             (ias_pressure s) (eas_pressure s) (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (eas_fatigue_accumulated s).
 
+  (* transition: urge becomes hold, clenching desperately, fatigue accumulating *)
   Definition transition_to_hold (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             VoluntaryHold (voluntary_commands s)
             (ias_pressure s) (eas_pressure s) (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (Mksec (time_sec (eas_fatigue_accumulated s) + time_sec hold_fatigue_increment)).
 
+  (* transition: urge becomes initiation, letting go, sphincters relaxing *)
   Definition transition_to_initiation (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             InitiationPhase (voluntary_commands s)
             relaxed_pressure relaxed_pressure (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (eas_fatigue_accumulated s).
 
+  (* transition: hold fails, muscles exhausted, control slipping away *)
   Definition transition_fatigue_failure (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             UrgePresent (voluntary_commands s)
             (ias_pressure s) relaxed_pressure (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (eas_fatigue_accumulated s).
 
+  (* transition: initiation becomes expulsion, the floodgates open *)
   Definition transition_to_expulsion (s : SystemState) : SystemState :=
     mkState (anatomy s) (bolus s) (bolus_position s) (posture s)
             ExpulsionPhase (voluntary_commands s)
             relaxed_pressure relaxed_pressure (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (eas_fatigue_accumulated s).
 
+  (* compute how far the bolus advances in one tick, based on pressure differential *)
   Definition compute_bolus_advancement (s : SystemState) : Interval mm :=
     match bolus s with
-    | None => mkInterval (Mkmm 0) (Mkmm 0)
+    | None => mkInterval (Mkmm 0) (Mkmm 0)  (* nothing to advance *)
     | Some b =>
         let pg := Posture.posture_to_geometry (posture s) in
         let exp := Pressure.compute_expulsive (anatomy s) pg in
@@ -1687,6 +1906,7 @@ Module StateMachine.
         Pressure.flow_rate diff (Bolus.bolus_physics b)
     end.
 
+  (* transition: expulsion tick, the bolus moves toward the exit *)
   Definition transition_expulsion_tick (s : SystemState) : SystemState :=
     let advancement := compute_bolus_advancement s in
     let new_pos_lo := distance_mm (lo (bolus_position s)) - distance_mm (hi advancement) in
@@ -1698,22 +1918,26 @@ Module StateMachine.
             relaxed_pressure relaxed_pressure (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (eas_fatigue_accumulated s).
 
+  (* guard for continuing expulsion: still flowing, not yet empty *)
   Definition guard_expulsion_tick (s : SystemState) : Prop :=
     reflex_state s = ExpulsionPhase /\
     mm_lt passage_complete_threshold (hi (bolus_position s)).
 
+  (* transition: expulsion completes, rectum emptied, bolus gone *)
   Definition transition_to_completion (s : SystemState) : SystemState :=
     mkState (anatomy s) None zero_position (posture s)
             CompletionPhase (voluntary_commands s)
             default_ias_pressure default_eas_pressure (anorectal_angle s)
             (Mksec (S (time_sec (elapsed_time s)))) (Mksec 0).
 
+  (* transition: return to calm, everything emptied, sphincters restored *)
   Definition transition_to_quiescent (s : SystemState) : SystemState :=
     mkState (anatomy s) None zero_position (posture s)
             Quiescent (voluntary_commands s)
             default_ias_pressure default_eas_pressure (anorectal_angle s)
             (Mksec 0) (Mksec 0).
 
+  (* each transition produces the expected state, no surprises *)
   Lemma transition_to_urge_state : forall s, reflex_state (transition_to_urge s) = UrgePresent.
   Proof. reflexivity. Defined.
   Lemma transition_to_hold_state : forall s, reflex_state (transition_to_hold s) = VoluntaryHold.
@@ -1729,6 +1953,7 @@ Module StateMachine.
   Lemma transition_to_quiescent_state : forall s, reflex_state (transition_to_quiescent s) = Quiescent.
   Proof. reflexivity. Defined.
 
+  (* initiation truly relaxes both sphincters, letting it all loose *)
   Lemma transition_to_initiation_relaxes :
     forall s, Pa_le (hi (eas_pressure (transition_to_initiation s))) relaxation_threshold /\
               Pa_le (hi (ias_pressure (transition_to_initiation s))) relaxation_threshold.
@@ -1736,14 +1961,18 @@ Module StateMachine.
     intros s.
     split; simpl; apply Pa_le_refl.
   Qed.
+
+  (* starting expulsion doesn't move the bolus yet, just opens the gates *)
   Lemma transition_to_expulsion_preserves_position :
     forall s, bolus_position (transition_to_expulsion s) = bolus_position s.
   Proof. reflexivity. Qed.
 
+  (* expulsion tick keeps us in expulsion phase, the flow continues *)
   Lemma transition_expulsion_tick_state :
     forall s, reflex_state (transition_expulsion_tick s) = ExpulsionPhase.
   Proof. reflexivity. Qed.
 
+  (* each tick moves the bolus closer to the exit, position can only decrease *)
   Lemma transition_expulsion_tick_decreases :
     forall s,
     mm_le (hi (bolus_position (transition_expulsion_tick s))) (hi (bolus_position s)).
@@ -1751,10 +1980,12 @@ Module StateMachine.
     intros s.
     unfold transition_expulsion_tick, mm_le.
     simpl.
+    (* case split on whether advancement exceeds current position *)
     destruct (Nat.leb (distance_mm (lo (bolus_position s))) (distance_mm (hi (compute_bolus_advancement s))));
     destruct (Nat.leb (distance_mm (hi (bolus_position s))) (distance_mm (lo (compute_bolus_advancement s)))); lia.
   Qed.
 
+  (* expulsion tick preserves well-formedness, nothing escapes its bounds *)
   Lemma transition_expulsion_tick_preserves_wf :
     forall s,
     position_within_bolus s ->
@@ -1764,8 +1995,10 @@ Module StateMachine.
     unfold position_within_bolus in *.
     unfold transition_expulsion_tick.
     simpl.
+    (* case on whether there's a bolus *)
     destruct (bolus s) as [b|].
     - unfold mm_le in *.
+      (* case split on clamping conditions *)
       destruct (Nat.leb (distance_mm (lo (bolus_position s))) (distance_mm (hi (compute_bolus_advancement s))));
       destruct (Nat.leb (distance_mm (hi (bolus_position s))) (distance_mm (lo (compute_bolus_advancement s)))).
       + simpl. lia.
@@ -1775,6 +2008,7 @@ Module StateMachine.
     - exact I.
   Qed.
 
+  (* all phase transitions preserve well-formedness, nothing escapes during the dance *)
   Lemma all_phase_transitions_preserve_wf :
     forall s,
     position_within_bolus s ->
@@ -1786,67 +2020,77 @@ Module StateMachine.
   Proof.
     intros s Hwf.
     unfold position_within_bolus in *.
+    (* all transitions preserve the bolus position bounds *)
     repeat split; simpl; destruct (bolus s); try exact I; exact Hwf.
   Defined.
 
+  (* completion restores sphincter tone, clenching back up after the release *)
   Lemma transition_to_completion_restores :
     forall s, Pa_le resting_tone_threshold (lo (eas_pressure (transition_to_completion s))) /\
               Pa_le resting_tone_threshold (lo (ias_pressure (transition_to_completion s))).
   Proof.
     intros s. split; simpl; apply Pa_le_refl.
   Qed.
-  
-  
+
+
+  (* the single-step transition relation, each possible move in the state machine *)
   Inductive Step : SystemState -> SystemState -> Prop :=
-    | step_urge : forall s,
+    | step_urge : forall s,        (* calm -> urge: the signal arrives *)
         guard_urge s ->
         Step s (transition_to_urge s)
-    | step_hold : forall s,
+    | step_hold : forall s,        (* urge -> hold: clenching to resist *)
         guard_hold s ->
         Step s (transition_to_hold s)
-    | step_initiate : forall s,
+    | step_initiate : forall s,    (* urge -> initiation: letting go *)
         guard_initiate s ->
         Step s (transition_to_initiation s)
-    | step_fatigue : forall s,
+    | step_fatigue : forall s,     (* hold -> urge: muscles give out *)
         guard_fatigue_failure s ->
         Step s (transition_fatigue_failure s)
-    | step_expel : forall s,
+    | step_expel : forall s,       (* initiation -> expulsion: the flow begins *)
         guard_expulsion_start s ->
         Step s (transition_to_expulsion s)
-    | step_expulsion_tick : forall s,
+    | step_expulsion_tick : forall s,  (* expulsion continues, bolus advancing *)
         guard_expulsion_tick s ->
         Step s (transition_expulsion_tick s)
-    | step_complete : forall s,
+    | step_complete : forall s,    (* expulsion -> completion: it's all out *)
         guard_completion s ->
         Step s (transition_to_completion s)
-    | step_reset : forall s,
+    | step_reset : forall s,       (* completion -> quiescent: calm restored *)
         guard_reset s ->
         Step s (transition_to_quiescent s).
-  
-  
+
+
+  (* multi-step reachability, the reflexive-transitive closure of Step *)
   Inductive MultiStep : SystemState -> SystemState -> Prop :=
-    | ms_refl : forall s, MultiStep s s
-    | ms_step : forall s1 s2 s3,
+    | ms_refl : forall s, MultiStep s s  (* can always stay put *)
+    | ms_step : forall s1 s2 s3,         (* or take a step and continue *)
         Step s1 s2 ->
         MultiStep s2 s3 ->
         MultiStep s1 s3.
 
+  (* multi-step is transitive, if you can reach B from A and C from B, you can reach C from A *)
   Lemma ms_trans : forall a b c,
     MultiStep a b -> MultiStep b c -> MultiStep a c.
   Proof.
     intros a b c Hab Hbc.
+    (* induct on the path from a to b *)
     induction Hab.
+    (* base: a = b, so the path to c is just Hbc *)
     - exact Hbc.
+    (* step: go through the intermediate state *)
     - apply ms_step with s2.
       + exact H.
       + apply IHHab.
         exact Hbc.
   Defined.
 
+  (* multi-step with a final step appended, building the path from the other end *)
   Lemma ms_step_r : forall a b c,
     MultiStep a b -> Step b c -> MultiStep a c.
   Proof.
     intros a b c Hab Hbc.
+    (* compose the path to b with the single step to c *)
     apply ms_trans with b.
     - exact Hab.
     - apply ms_step with c.
@@ -1854,16 +2098,20 @@ Module StateMachine.
       + apply ms_refl.
   Defined.
 
+  (* the terminal state: quiet and empty, nothing left to expel *)
   Definition quiescent_empty (s : SystemState) : Prop :=
     reflex_state s = Quiescent /\ bolus s = None.
 
+  (* once quiet and empty, no further transitions are possible, we're done *)
   Lemma quiescent_empty_no_step :
     forall s s',
     quiescent_empty s ->
     ~ Step s s'.
   Proof.
     intros s s' [Hq Hb] Hstep.
+    (* case analysis on which step was supposedly taken *)
     inversion Hstep; subst;
+      (* each guard requires either a bolus or a non-quiescent state *)
       try (unfold guard_urge in *; destruct H as [_ Hg]; rewrite Hb in Hg; exact Hg);
       try (unfold guard_hold, has_bolus in *; destruct H as [_ [_ Hg]]; rewrite Hb in Hg; exact Hg);
       try (unfold guard_initiate, has_bolus in *; destruct H as [_ [_ [_ Hg]]]; rewrite Hb in Hg; exact Hg);
@@ -1893,16 +2141,18 @@ Module Progress.
   Import Pressure.
   Import Neural.
   Import StateMachine.
-  
+
 
   (*
      During ExpulsionPhase, if pressure differential is positive,
      bolus position strictly decreases (approaches anal verge).
   *)
 
+  (* the bolus moved closer to the exit *)
   Definition bolus_advances (pos_before pos_after : Interval mm) : Prop :=
     mm_lt (hi pos_after) (hi pos_before).
 
+  (* positive flow means the bolus advances, it's coming out *)
   Lemma flow_implies_advancement :
     forall diff physics pos_before,
     pressure_Pa (lo diff) > pressure_Pa (hi (bp_yield_stress physics)) ->
@@ -1912,12 +2162,14 @@ Module Progress.
     bolus_advances pos_before pos_after.
   Proof.
     intros diff physics pos_before Hdiff Hflow Hpos.
+    (* construct a position strictly closer to the exit *)
     exists (mkInterval (Mkmm 0) (Mkmm (distance_mm (hi pos_before) - 1))).
     unfold bolus_advances, mm_lt.
     simpl.
     lia.
   Qed.
 
+  (* advancement means strictly less distance remaining *)
   Lemma advancement_reduces_remaining :
     forall pos1 pos2 : Interval mm,
     bolus_advances pos1 pos2 ->
@@ -1935,9 +2187,11 @@ Module Progress.
      uncontrolled expulsion.
   *)
 
+  (* has the accumulated fatigue exceeded the limit, can't hold any longer *)
   Definition fatigue_exceeds_limit (acc : sec) : Prop :=
     sec_le StateMachine.fatigue_limit acc.
 
+  (* fatigue never drops below the floor, there's always some minimal grip *)
   Lemma fatigue_approaches_floor :
     forall eas t,
     pressure_Pa (lo (eas_fatigue_model eas t)) >=
@@ -1949,6 +2203,7 @@ Module Progress.
     lia.
   Qed.
 
+  (* fatigue is bounded, pressure can't exceed floor plus decaying component *)
   Lemma fatigue_bounded_above :
     forall eas t,
     pressure_Pa (lo (eas_fatigue_model eas t)) <=
@@ -1964,6 +2219,7 @@ Module Progress.
     lia.
   Qed.
 
+  (* fatigue only gets worse with time, strength draining away *)
   Lemma fatigue_decreases_over_time :
     forall eas t1 t2,
     time_sec t1 <= time_sec t2 ->
@@ -1973,7 +2229,9 @@ Module Progress.
     intros eas t1 t2 Hle.
     unfold eas_fatigue_model.
     simpl.
+    (* floor is constant, only the decaying term changes *)
     apply PeanoNat.Nat.add_le_mono_l.
+    (* the decaying term shrinks as time increases *)
     apply (div_antitone
       ((pressure_Pa (lo (eas_max_squeeze_pressure eas)) -
         pressure_Pa (hi (eas_voluntary_relaxation_floor eas))) *
@@ -1984,6 +2242,7 @@ Module Progress.
     - lia.
   Qed.
 
+  (* once fatigue accumulates past the limit, you can't hold anymore *)
   Lemma hold_bounded_by_fatigue :
     forall acc_start acc_end : sec,
     time_sec acc_end >= time_sec acc_start ->
@@ -2001,9 +2260,11 @@ Module Progress.
      in bounded time.
   *)
 
+  (* the sphincter has loosened enough to let things through *)
   Definition sphincter_relaxed (p : Interval Pa) : Prop :=
     Pa_le (hi p) StateMachine.relaxation_threshold.
 
+  (* RAIR causes actual relaxation, the reflex works *)
   Lemma ias_relaxes_on_rair :
     forall ias vol,
     pressure_Pa (lo (ias_relaxation_magnitude ias)) > 0 ->
@@ -2015,6 +2276,7 @@ Module Progress.
     exact Hpos.
   Qed.
 
+  (* the default IAS actually relaxes, the reflex is functional *)
   Lemma default_ias_has_positive_relaxation :
     pressure_Pa (lo (ias_relaxation_magnitude default_ias)) > 0.
   Proof.
@@ -2023,6 +2285,7 @@ Module Progress.
     lia.
   Qed.
 
+  (* relaxation completes in bounded time, you can't hold the reflex forever *)
   Lemma relaxation_bounded_time :
     forall ias,
     exists t_max : sec,
@@ -2039,7 +2302,8 @@ Module Progress.
      For Bristol Types 2-6 in squatting posture with normal anatomy,
      achievable Valsalva pressure exceeds required pressure.
   *)
-  
+
+  (* the normal range of stool consistency, things that can actually pass *)
   Definition is_normal_bristol (bt : BristolType) : Prop :=
     match bt with
     | Type2_LumpySausage => True
@@ -2047,7 +2311,7 @@ Module Progress.
     | Type4_SmoothSoftSausage => True
     | Type5_SoftBlobsClearEdges => True
     | Type6_FluffentPieces => True
-    | _ => False
+    | _ => False  (* Type 1 too hard, Type 7 too liquid *)
     end.
 
 
@@ -2071,54 +2335,60 @@ Module Termination.
   Import Neural.
   Import StateMachine.
   Import Progress.
-  
-  
+
+
   (*
      We define a measure that strictly decreases on each transition.
      Measure = (phase_rank, bolus_remaining, sphincter_resistance)
      in lexicographic order.
   *)
-  
+
+  (* rank each phase by how close to completion, lower is closer to done *)
   Definition phase_rank (r : ReflexState) : nat :=
     match r with
-    | Quiescent => 0
-    | CompletionPhase => 1
-    | ExpulsionPhase => 2
-    | InitiationPhase => 3
-    | UrgePresent => 4
-    | VoluntaryHold => 5
+    | Quiescent => 0        (* done, nothing left *)
+    | CompletionPhase => 1  (* almost there, sphincters recovering *)
+    | ExpulsionPhase => 2   (* actively flowing out *)
+    | InitiationPhase => 3  (* letting go, about to flow *)
+    | UrgePresent => 4      (* feeling the pressure *)
+    | VoluntaryHold => 5    (* clenching desperately, highest tension *)
     end.
 
   (* Note: Quiescent is 0 (terminal). VoluntaryHold has highest rank
      because fatigue failure transitions to UrgePresent (4), ensuring
      monotonic decrease. Normal flow: UrgePresent -> InitiationPhase ->
      ExpulsionPhase -> CompletionPhase -> Quiescent is 4 -> 3 -> 2 -> 1 -> 0. *)
-  
-  
+
+
   (*
      Critical assumption: bolus volume is finite and bounded.
      Without this, ExpulsionPhase could run forever.
   *)
-  
+
+  (* the maximum payload the rectum can hold *)
   Definition max_bolus_volume : mL := MkmL 500.
 
+  (* the bolus is finite, it will eventually all come out *)
   Definition finite_bolus (b : Bolus) : Prop :=
     mL_le (hi (bolus_volume b)) max_bolus_volume.
 
-
+  (* the commands are set to release, not holding back *)
   Definition voluntary_commands_permit_defecation (s : SystemState) : Prop :=
     cmd_eas_relax (voluntary_commands s) = true /\
     cmd_pr_relax (voluntary_commands s) = true.
 
+  (* iterate expulsion ticks until position reaches zero or fuel runs out *)
   Fixpoint expulsion_ticks (n : nat) (s : SystemState) : SystemState :=
     match n with
-    | O => s
+    | O => s  (* out of iterations *)
     | S n' =>
+        (* check if already at exit *)
         if Nat.leb (distance_mm (hi (bolus_position s))) (distance_mm passage_complete_threshold)
-        then s
-        else expulsion_ticks n' (transition_expulsion_tick s)
+        then s  (* done, it's all out *)
+        else expulsion_ticks n' (transition_expulsion_tick s)  (* keep pushing *)
     end.
 
+  (* expulsion ticks preserve the expulsion phase *)
   Lemma expulsion_ticks_state :
     forall n s,
     reflex_state s = ExpulsionPhase ->
@@ -2136,19 +2406,25 @@ Module Termination.
         apply transition_expulsion_tick_state.
   Qed.
 
+  (* expulsion ticks form a valid multi-step path, each tick is a legal transition *)
   Lemma expulsion_ticks_multistep :
     forall n s,
     reflex_state s = ExpulsionPhase ->
     MultiStep s (expulsion_ticks n s).
   Proof.
+    (* induct on the number of ticks *)
     induction n.
+    (* base case: zero ticks, stay in place *)
     - intros s Hs.
       simpl.
       apply ms_refl.
+    (* step case: take one tick, then recurse *)
     - intros s Hs.
       simpl.
       destruct (distance_mm (hi (bolus_position s)) <=? 0) eqn:Hcmp.
+      (* already at exit, done *)
       + apply ms_refl.
+      (* not at exit, take a tick and continue *)
       + apply ms_step with (transition_expulsion_tick s).
         * apply step_expulsion_tick.
           unfold guard_expulsion_tick.
@@ -2160,6 +2436,7 @@ Module Termination.
           apply transition_expulsion_tick_state.
   Qed.
 
+  (* how many ticks needed to empty from a given position *)
   Definition sufficient_ticks (pos : mm) : nat := S (distance_mm pos).
 
   (*
@@ -2167,12 +2444,16 @@ Module Termination.
      Use `expulsion_ticks_reaches_threshold` to prove completion given
      sufficient fuel (n >= bolus position) and positive flow.
   *)
+
+  (* expulsion is done when the bolus has reached the exit *)
   Definition expulsion_completed (s : SystemState) : Prop :=
     mm_le (hi (bolus_position s)) passage_complete_threshold.
 
+  (* flow is positive, the bolus is actually moving *)
   Definition has_positive_flow (s : SystemState) : Prop :=
     distance_mm (lo (compute_bolus_advancement s)) > 0.
 
+  (* the pushing pressure exceeds the resistance, things will flow *)
   Definition sufficient_pressure_differential (s : SystemState) : Prop :=
     match bolus s with
     | None => False
@@ -2183,6 +2464,7 @@ Module Termination.
         pressure_Pa (lo (Pressure.e_total exp)) > pressure_Pa (hi (Pressure.r_total res))
     end.
 
+  (* pressure exceeds resistance with margin to spare, guaranteed flow *)
   Definition sufficient_pressure_with_margin (s : SystemState) : Prop :=
     match bolus s with
     | None => False
@@ -2194,6 +2476,7 @@ Module Termination.
         pressure_Pa (lo (Pressure.e_total exp)) > pressure_Pa (hi (Pressure.r_total res)) + Pressure.margin_for_flow physics
     end.
 
+  (* sufficient pressure with margin guarantees actual positive flow *)
   Lemma sufficient_pressure_implies_flow :
     forall s,
     sufficient_pressure_with_margin s ->
@@ -2202,11 +2485,14 @@ Module Termination.
     intros s Hsuff.
     unfold has_positive_flow, compute_bolus_advancement, sufficient_pressure_with_margin in *.
     destruct (bolus s) as [b|] eqn:Hbolus.
+    (* there's a bolus, apply the pressure-to-flow lemma *)
     - apply Pressure.passage_possible_with_margin.
       exact Hsuff.
+    (* no bolus, contradiction *)
     - inversion Hsuff.
   Defined.
 
+  (* sufficient pressure with margin implies the basic differential condition *)
   Lemma sufficient_pressure_implies_differential :
     forall s,
     sufficient_pressure_with_margin s ->
@@ -2215,6 +2501,7 @@ Module Termination.
     intros s Hsuff.
     unfold sufficient_pressure_differential, sufficient_pressure_with_margin in *.
     destruct (bolus s) as [b|].
+    (* margin is non-negative, so with-margin implies without *)
     - unfold Pressure.margin_for_flow in Hsuff. lia.
     - exact Hsuff.
   Defined.
